@@ -33,10 +33,6 @@ class ItemUpdate(BaseModel):
     dismissed: bool | None = None
 
 
-class BulkItemUpdate(ItemUpdate):
-    ids: list[int]
-
-
 class WatchRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

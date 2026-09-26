@@ -39,11 +39,14 @@ export function useUpdateItem() {
   });
 }
 
-export function useBulkUpdateItems() {
+export function useMarkAllSeen() {
   const invalidate = useInvalidateItems();
   return useMutation({
-    mutationFn: (payload: { ids: number[]; seen?: boolean; dismissed?: boolean }) =>
-      api.post<{ updated: number }>("/items/bulk", payload),
+    mutationFn: ({ filter, watchId }: { filter: ItemFilter; watchId: number | null }) => {
+      const params = new URLSearchParams({ filter });
+      if (watchId !== null) params.set("watch_id", String(watchId));
+      return api.post<{ updated: number }>(`/items/mark_all_seen?${params}`);
+    },
     onSuccess: invalidate,
   });
 }

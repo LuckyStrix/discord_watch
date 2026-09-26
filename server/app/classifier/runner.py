@@ -4,7 +4,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import and_, delete, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.classifier.prompt import (
@@ -85,20 +85,25 @@ async def classify(
 async def process_pending(db: AsyncSession) -> int:
     """One classifier pass. Items are grouped per (watch, channel) so each
     Ollama call judges a single conversation with that channel's context --
-    mixing channels in one prompt confuses a small model."""
+    mixing channels in one prompt confuses a small model.
+
+    No row locks: there is exactly one classifier, and holding FOR UPDATE
+    across minutes of CPU inference made the inbox's "Done"/"Mark all seen"
+    hang on still-pending rows. Each batch commits as soon as it's judged."""
     s = await get_settings(db)
     rows = (
         await db.execute(
             select(Item, Watch)
             .join(Watch, Item.watch_id == Watch.id)
             .where(Item.status == "pending", Watch.enabled.is_(True))
-            .order_by(Item.created_at)
+            # Newest first, so a live DM isn't stuck behind a startup
+            # catch-up's worth of older messages.
+            .order_by(Item.created_at.desc())
             .limit(BATCH_SIZE * 10)
-            .with_for_update(of=Item, skip_locked=True)
         )
     ).all()
+    await db.commit()
     if not rows:
-        await db.commit()
         return 0
 
     groups: dict[tuple[int, str | None], list[Item]] = defaultdict(list)
@@ -108,17 +113,25 @@ async def process_pending(db: AsyncSession) -> int:
         watches[watch.id] = watch
 
     provider = provider_for(s)
-    now = datetime.now(timezone.utc)
     done = 0
     for (watch_id, channel_id), group in groups.items():
+        group.sort(key=lambda i: i.created_at)  # chronological within a conversation
         for start in range(0, len(group), BATCH_SIZE):
             batch = group[start : start + BATCH_SIZE]
             context = await load_context(db, channel_id, batch[0].created_at)
             try:
                 decisions = await classify(provider, s, watches[watch_id], batch, context)
-            except Exception as exc:  # noqa: BLE001 -- Ollama down/invalid output: retry next pass
-                log.warning("classification failed for watch %s: %s", watch_id, exc)
+            except ValueError as exc:
+                # The model answered but its output was unusable: a per-item
+                # failure worth counting toward MAX_ATTEMPTS.
+                log.warning("unusable model output for watch %s: %s", watch_id, exc)
                 decisions = {}
+            # Anything else (Ollama unreachable, model not pulled, timeout)
+            # propagates: items stay pending with attempts untouched, and the
+            # main loop records the error. Counting those as attempts would
+            # mark every pending message "error" after a few minutes of
+            # Ollama being down.
+            now = datetime.now(timezone.utc)
             for item in batch:
                 decision = decisions.get(item.id)
                 if decision is None:
@@ -132,22 +145,20 @@ async def process_pending(db: AsyncSession) -> int:
                 item.status = "done"
                 item.classified_at = now
                 done += 1
-    await db.commit()
+            await db.commit()
     return done
 
 
 async def purge_old(db: AsyncSession) -> int:
     s = await get_settings(db)
     cutoff = datetime.now(timezone.utc) - timedelta(days=s.retention_days)
-    result = await db.execute(
-        delete(Item).where(
-            Item.created_at < cutoff,
-            or_(
-                Item.importance.in_(("ignore", "fyi")),
-                Item.dismissed_at.is_not(None),
-                Item.status == "error",
-            ),
-        )
+    # Past retention, keep only what's still asking for attention (undismissed
+    # important/urgent/needs-reply). Everything else goes -- including items
+    # stranded as pending because their section was disabled.
+    keep = and_(
+        Item.dismissed_at.is_(None),
+        or_(Item.needs_reply.is_(True), Item.importance.in_(("important", "urgent"))),
     )
+    result = await db.execute(delete(Item).where(Item.created_at < cutoff, not_(keep)))
     await db.commit()
     return result.rowcount or 0

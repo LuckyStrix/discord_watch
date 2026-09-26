@@ -1,7 +1,7 @@
 """Classifier service: every `batch_interval_s`, judge pending items with the
 local model. A plain async loop instead of notes_app's RQ worker -- there is
-exactly one periodic job, so a status column + SKIP LOCKED is all the queue
-this needs."""
+exactly one periodic job and one classifier process, so a status column is
+all the queue this needs."""
 
 import asyncio
 import logging

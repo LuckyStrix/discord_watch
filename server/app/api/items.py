@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models import Item, Watch
-from app.schemas import BulkItemUpdate, ItemRead, ItemUpdate
+from app.schemas import ItemRead, ItemUpdate
 
 router = APIRouter(prefix="/items", tags=["items"])
 
@@ -28,7 +28,6 @@ async def list_items(
     filter: Literal["attention", "all"] = "attention",
     watch_id: int | None = None,
     include_dismissed: bool = False,
-    before_id: int | None = None,
     limit: int = Query(default=100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ):
@@ -39,9 +38,9 @@ async def list_items(
         stmt = stmt.where(Item.watch_id == watch_id)
     if not include_dismissed:
         stmt = stmt.where(Item.dismissed_at.is_(None))
-    if before_id is not None:
-        stmt = stmt.where(Item.id < before_id)
-    rows = (await db.execute(stmt.order_by(Item.id.desc()).limit(limit))).all()
+    # Message time, not insert order: catch-up inserts older messages after
+    # newer live ones, so id order would interleave them wrongly.
+    rows = (await db.execute(stmt.order_by(Item.created_at.desc(), Item.id.desc()).limit(limit))).all()
     return [_to_read(item, label) for item, label in rows]
 
 
@@ -70,17 +69,21 @@ async def update_item(item_id: int, payload: ItemUpdate, db: AsyncSession = Depe
     return _to_read(item, watch.label if watch else None)
 
 
-@router.post("/bulk")
-async def bulk_update(payload: BulkItemUpdate, db: AsyncSession = Depends(get_db)):
-    changes = _apply(payload)
-    if not payload.ids or not changes:
-        return {"updated": 0}
-    # Only stamp items that don't already have a timestamp, so "mark all seen"
-    # doesn't rewrite when earlier items were actually seen.
-    stmt = update(Item).where(Item.id.in_(payload.ids))
-    if "seen_at" in changes and changes["seen_at"] is not None and "dismissed_at" not in changes:
-        stmt = stmt.where(Item.seen_at.is_(None))
-    result = await db.execute(stmt.values(**changes))
+@router.post("/mark_all_seen")
+async def mark_all_seen(
+    filter: Literal["attention", "all"] = "attention",
+    watch_id: int | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Marks every unseen item matching the inbox's current filter as seen --
+    server-side, because the inbox only loads the newest 100 and the unread
+    badge counts all of them."""
+    stmt = update(Item).where(Item.seen_at.is_(None), Item.dismissed_at.is_(None))
+    if filter == "attention":
+        stmt = stmt.where(attention_clause())
+    if watch_id is not None:
+        stmt = stmt.where(Item.watch_id == watch_id)
+    result = await db.execute(stmt.values(seen_at=datetime.now(timezone.utc)))
     await db.commit()
     return {"updated": result.rowcount}
 

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
-import { type ItemFilter, useBulkUpdateItems, useItems, useWatches } from "../api/hooks";
+import { type ItemFilter, useItems, useMarkAllSeen, useWatches } from "../api/hooks";
 import ItemCard from "../components/ItemCard";
 import { notificationsSupported, useNotificationPermission } from "../components/useNotifications";
 
@@ -34,9 +34,9 @@ export default function InboxPage() {
   const [watchId, setWatchId] = useState<number | null>(null);
   const { data: items, isLoading, error } = useItems(filter, watchId);
   const { data: watches } = useWatches();
-  const bulk = useBulkUpdateItems();
+  const markAllSeen = useMarkAllSeen();
 
-  const unseenIds = (items ?? []).filter((i) => !i.seen_at).map((i) => i.id);
+  const anyUnseen = (items ?? []).some((i) => !i.seen_at);
 
   return (
     <div className="page">
@@ -60,8 +60,8 @@ export default function InboxPage() {
         </select>
         <button
           className="btn"
-          disabled={unseenIds.length === 0 || bulk.isPending}
-          onClick={() => bulk.mutate({ ids: unseenIds, seen: true })}
+          disabled={!anyUnseen || markAllSeen.isPending}
+          onClick={() => markAllSeen.mutate({ filter, watchId })}
         >
           Mark all seen
         </button>

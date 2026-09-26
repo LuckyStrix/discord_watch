@@ -236,7 +236,9 @@ class WatchClient(discord.Client):
         rows = []
         for guild in self.guilds:
             me = guild.me
-            for channel in guild.text_channels:
+            # Forums aren't TextChannels; their posts are threads whose
+            # parent_id is the forum, which routing already handles.
+            for channel in [*guild.text_channels, *guild.forums]:
                 if me is not None and not channel.permissions_for(me).read_messages:
                     continue
                 rows.append(
@@ -378,11 +380,14 @@ class WatchClient(discord.Client):
     async def on_ready(self) -> None:
         log.info("connected as %s", self.user)
         await self.sync_channel_directory()
+        # Every READY, not just the first: requests sent while a reconnect was
+        # in progress arrive only in the READY relationship list, never as a
+        # RELATIONSHIP_ADD event. Cache-only and deduped, so it costs nothing.
+        await self.rescan_friend_requests()
         if self._ready_once:
             # READY fires again after a full reconnect; backfill once per process.
             return
         self._ready_once = True
-        await self.rescan_friend_requests()
         async with async_session() as db:
             backfill_enabled = (await get_settings(db)).backfill_enabled
         if backfill_enabled:

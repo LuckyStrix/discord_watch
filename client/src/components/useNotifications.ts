@@ -2,20 +2,28 @@ import { useEffect, useRef, useState } from "react";
 
 import { useItems } from "../api/hooks";
 
-const LAST_NOTIFIED_KEY = "discord_watch_last_notified_id";
+// Ids of attention items this browser has already seen in the list (and so
+// notified about, or deliberately skipped on first load). A set rather than a
+// "highest id so far" baseline: items are judged out of order (a failed
+// batch retries later, "Re-judge" can promote an old item), so an older id
+// can become attention after a newer one and must still notify.
+const KNOWN_KEY = "discord_watch_known_attention_ids";
+const KNOWN_CAP = 1000;
 
-function readLastNotified(): number | null {
+function readKnown(): Set<number> | null {
   try {
-    const raw = localStorage.getItem(LAST_NOTIFIED_KEY);
-    return raw ? Number(raw) : null;
+    const raw = localStorage.getItem(KNOWN_KEY);
+    return raw ? new Set(JSON.parse(raw) as number[]) : null;
   } catch {
     return null;
   }
 }
 
-function writeLastNotified(id: number) {
+function writeKnown(known: Set<number>) {
   try {
-    localStorage.setItem(LAST_NOTIFIED_KEY, String(id));
+    // Keep the newest ids; anything older has long left the attention list.
+    const ids = [...known].sort((a, b) => b - a).slice(0, KNOWN_CAP);
+    localStorage.setItem(KNOWN_KEY, JSON.stringify(ids));
   } catch {
     // Storage unavailable (private window etc.) -- worst case we re-notify.
   }
@@ -39,25 +47,25 @@ export function useNotificationPermission() {
   return { permission, request };
 }
 
-/** Raises a desktop/phone notification for each newly-arrived attention item.
- * The first load only records a baseline, so opening the page never replays
- * a burst of old notifications. */
+/** Raises a desktop/phone notification for each attention item this browser
+ * hasn't seen in the list before. The very first load only records what's
+ * already there, so opening the page never replays a burst of old items. */
 export function useAttentionNotifications() {
   const { data: items } = useItems("attention", null);
-  const baseline = useRef<number | null>(readLastNotified());
+  const known = useRef<Set<number> | null>(readKnown());
 
   useEffect(() => {
-    if (!items || items.length === 0) return;
-    const maxId = Math.max(...items.map((i) => i.id));
-    if (baseline.current === null) {
-      baseline.current = maxId;
-      writeLastNotified(maxId);
+    if (!items) return;
+    if (known.current === null) {
+      known.current = new Set(items.map((i) => i.id));
+      writeKnown(known.current);
       return;
     }
-    const fresh = items.filter((i) => i.id > baseline.current! && !i.seen_at).sort((a, b) => a.id - b.id);
+    const seenBefore = known.current;
+    const fresh = items.filter((i) => !seenBefore.has(i.id) && !i.seen_at).sort((a, b) => a.id - b.id);
     if (fresh.length === 0) return;
-    baseline.current = maxId;
-    writeLastNotified(maxId);
+    for (const i of fresh) seenBefore.add(i.id);
+    writeKnown(seenBefore);
 
     if (!notificationsSupported() || Notification.permission !== "granted") return;
     // Collapse bursts into one summary notification.

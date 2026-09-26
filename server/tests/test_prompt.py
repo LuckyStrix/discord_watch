@@ -83,3 +83,9 @@ def test_attention_rule():
     assert is_attention("fyi", True)
     assert not is_attention("fyi", False)
     assert not is_attention(None, False)
+
+
+def test_long_reasons_are_clipped_not_rejected():
+    result = BatchResult(results=[ItemResult(id=1, importance="fyi", needs_reply=False, reason="word " * 200)])
+    d = apply_results([item(1)], result)
+    assert len(d[1].reason) <= 300 and d[1].reason.endswith("…")

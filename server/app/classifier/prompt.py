@@ -4,12 +4,13 @@ no network, so it's unit-testable. `runner.py` owns the I/O around it."""
 from dataclasses import dataclass
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 Importance = Literal["ignore", "fyi", "important", "urgent"]
 IMPORTANCE_ORDER: list[str] = ["ignore", "fyi", "important", "urgent"]
 
 CONTENT_LIMIT = 800
+REASON_LIMIT = 300
 
 RUBRIC = """You triage Discord activity for one person (called "the user" below) so they only look at what matters.
 For EACH numbered item, decide:
@@ -30,7 +31,10 @@ class ItemResult(BaseModel):
     # reason first and label second. A 3B model otherwise picks a label and
     # then writes a reason that contradicts it.
     id: int
-    reason: str = Field(max_length=300)
+    # No max_length: a schema limit turns one long-winded answer into a
+    # validation failure (and eventually a lost item). Clipped in
+    # apply_results instead.
+    reason: str
     importance: Importance
     needs_reply: bool
 
@@ -139,7 +143,9 @@ def apply_results(items: list[PromptItem], result: BatchResult) -> dict[int, Dec
         if item is None or r.id in decisions:
             continue
         importance = floor_importance(item, r.importance)
-        reason = r.reason.strip()
+        reason = " ".join(r.reason.split())
+        if len(reason) > REASON_LIMIT:
+            reason = reason[: REASON_LIMIT - 1] + "…"
         if importance != r.importance:
             reason = f"{reason} (Model said {r.importance}; kept visible because it was sent to you directly.)"
         decisions[r.id] = Decision(importance=importance, needs_reply=r.needs_reply, reason=reason)
