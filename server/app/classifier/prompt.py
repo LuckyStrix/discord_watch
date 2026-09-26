@@ -71,7 +71,9 @@ def _clip(text: str) -> str:
     return text if len(text) <= CONTENT_LIMIT else text[:CONTENT_LIMIT] + "…"
 
 
-def build_system_prompt(about_me: str, section_label: str, criteria: str) -> str:
+def build_system_prompt(
+    about_me: str, section_label: str, criteria: str, channel_note: str | None = None, channel: str | None = None
+) -> str:
     parts = [RUBRIC]
     if about_me.strip():
         parts.append(f"About the user:\n{about_me.strip()}")
@@ -81,6 +83,10 @@ def build_system_prompt(about_me: str, section_label: str, criteria: str) -> str
         if criteria.strip()
         else "The user gave no specific criteria for this section; use general judgement about what a busy person would want to see."
     )
+    if channel_note and channel_note.strip():
+        # Only ever the note for the one channel this call covers.
+        where = channel or "this channel"
+        parts.append(f"Extra criteria for {where} specifically (in addition to the above):\n{channel_note.strip()}")
     return "\n\n".join(parts)
 
 

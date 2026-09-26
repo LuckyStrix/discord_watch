@@ -54,7 +54,7 @@ It's still your call and your account.
    ```
    Open <http://localhost:8095>. The status pill turns green once Discord is connected and the classifier has run. Every service is `restart: unless-stopped`, so it comes back whenever Docker does.
 5. **Configure what to watch:**
-   - On the **Watching** page, add channels (or **a whole server** at once) and write what "important" means for each one. DMs and requests are already there with starter criteria. A channel watched on its own overrides its server's criteria. In a whole-server section you can untick individual channels or entire categories to leave them out; an excluded category also covers channels added to it later.
+   - On the **Watching** page, add channels (or **a whole server** at once) and write what "important" means for each one. DMs and requests are already there with starter criteria. A channel watched on its own overrides its server's criteria. In a whole-server section you can untick individual channels or entire categories to leave them out; an excluded category also covers channels added to it later. To tweak the rules for one channel without splitting it out, add a **channel note** on the whole-server section: it's added to the server's criteria only when judging that channel (forum posts and threads included). A channel that needs completely different rules can get its own section instead.
    - Use **Test criteria** to see how the model would judge recent messages under your wording. It's a dry run, so nothing is saved.
    - In **Settings → About me**, give the model some context about you.
 

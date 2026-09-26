@@ -34,6 +34,7 @@ export interface Watch {
   always_catch_up: boolean;
   excluded_channel_ids: string[];
   excluded_category_ids: string[];
+  channel_notes: Record<string, string>;
   created_at: string;
   pending_count: number;
   attention_count: number;

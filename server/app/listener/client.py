@@ -176,6 +176,7 @@ class WatchClient(discord.Client):
                 guild_name=message.guild.name if message.guild else None,
                 channel_id=str(channel.id),
                 channel_name=_channel_label(channel),
+                parent_channel_id=str(channel.parent_id) if isinstance(channel, discord.Thread) else None,
                 author_id=str(message.author.id),
                 author_name=message.author.display_name,
                 content=_message_text(message),

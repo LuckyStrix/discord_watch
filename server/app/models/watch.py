@@ -40,4 +40,8 @@ class Watch(Base):
     # An explicit channel watch still wins over either.
     excluded_channel_ids: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     excluded_category_ids: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    # Whole-server watches only: {channel_id: extra criteria}. Added to the
+    # server's criteria (not replacing them) when judging that channel; a
+    # channel that needs entirely different rules gets its own watch instead.
+    channel_notes: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

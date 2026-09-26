@@ -75,11 +75,15 @@ async def classify(
     Item.id. Prompt ids are small 1-based indices rather than DB ids --
     a 3B model copies "3" back far more reliably than "48213"."""
     prompt_items = [to_prompt_item(n, item, watch) for n, item in enumerate(items, start=1)]
-    system = build_system_prompt(s.about_me, watch.label, watch.criteria)
+    first = items[0]
+    note = None
+    if watch.kind == "guild" and watch.channel_notes:
+        # Threads/forum posts use their parent's note (keyed by the forum).
+        note = watch.channel_notes.get(first.parent_channel_id or "") or watch.channel_notes.get(first.channel_id or "")
     # Every item in a call shares one channel (see process_pending's grouping).
     # Server channels get a "#" so they match how criteria name them ("#memes").
-    first = items[0]
     where = f"#{first.channel_name}" if first.guild_id and first.channel_name else first.channel_name
+    system = build_system_prompt(s.about_me, watch.label, watch.criteria, note, where)
     user = build_user_prompt(prompt_items, context, where)
     result = await provider.structured_extract(system, user, BatchResult)
     decisions = apply_results(prompt_items, result)

@@ -122,8 +122,16 @@ async def _get(db: AsyncSession, watch_id: int) -> Watch:
 async def update_watch(watch_id: int, payload: WatchUpdate, db: AsyncSession = Depends(get_db)):
     watch = await _get(db, watch_id)
     changes = payload.model_dump(exclude_unset=True)
-    if watch.kind != "guild" and ({"excluded_channel_ids", "excluded_category_ids"} & changes.keys()):
-        raise HTTPException(status_code=400, detail="Only whole-server sections have exclusions")
+    if watch.kind != "guild" and ({"excluded_channel_ids", "excluded_category_ids", "channel_notes"} & changes.keys()):
+        raise HTTPException(status_code=400, detail="Only whole-server sections have exclusions or channel notes")
+    if "channel_notes" in changes:
+        merged = dict(watch.channel_notes or {})
+        for channel_id, text in changes.pop("channel_notes").items():
+            if text.strip():
+                merged[channel_id] = text
+            else:
+                merged.pop(channel_id, None)
+        watch.channel_notes = merged
     for key in ("excluded_channel_ids", "excluded_category_ids"):
         if key in changes:
             changes[key] = sorted(set(changes[key]))

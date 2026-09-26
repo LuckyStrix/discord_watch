@@ -46,6 +46,7 @@ class WatchRead(BaseModel):
     always_catch_up: bool
     excluded_channel_ids: list[str]
     excluded_category_ids: list[str]
+    channel_notes: dict[str, str]
     created_at: datetime
     pending_count: int = 0
     attention_count: int = 0
@@ -69,6 +70,10 @@ class WatchUpdate(BaseModel):
     always_catch_up: bool | None = None
     excluded_channel_ids: list[str] | None = None
     excluded_category_ids: list[str] | None = None
+    # Merged into the existing notes; an empty string removes that channel's
+    # note. Partial on purpose: two notes saved in quick succession from the
+    # UI can't overwrite each other.
+    channel_notes: dict[str, str] | None = None
 
 
 class TestResult(BaseModel):

@@ -34,6 +34,9 @@ class Item(Base):
     guild_name: Mapped[str | None] = mapped_column(String(255))
     channel_id: Mapped[str | None] = mapped_column(String(32))
     channel_name: Mapped[str | None] = mapped_column(String(255))
+    # For thread / forum-post messages: the channel they live under, so
+    # per-channel notes (keyed by the forum/channel) apply to them too.
+    parent_channel_id: Mapped[str | None] = mapped_column(String(32))
     author_id: Mapped[str | None] = mapped_column(String(32))
     author_name: Mapped[str | None] = mapped_column(String(255))
     content: Mapped[str] = mapped_column(Text, nullable=False, server_default="")

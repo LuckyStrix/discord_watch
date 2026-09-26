@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   useChannels,
@@ -64,7 +64,7 @@ function CriteriaEditor({ watch }: { watch: Watch }) {
   );
 }
 
-function WatchDetails({ watch }: { watch: Watch }) {
+function WatchDetails({ watch, children }: { watch: Watch; children?: ReactNode }) {
   const update = useUpdateWatch();
   const del = useDeleteWatch();
   const test = useTestWatch();
@@ -74,6 +74,7 @@ function WatchDetails({ watch }: { watch: Watch }) {
     <>
       {BUILTIN_HINT[watch.kind] && <p className="muted small">{BUILTIN_HINT[watch.kind]}</p>}
       <CriteriaEditor watch={watch} />
+      {children}
       <label
         className="toggle catch-up"
         title="Normally the startup catch-up only fetches channels Discord shows as unread."
@@ -219,6 +220,108 @@ function Exclusions({ watch, guild }: { watch: Watch; guild: Guild | undefined }
   );
 }
 
+/** One channel's note, with the same debounce + flush-on-blur autosave as
+ * CriteriaEditor. Saving sends only this channel's entry (the server merges),
+ * so editing two notes back to back can't clobber either. */
+function ChannelNoteEditor({
+  watch,
+  channelId,
+  name,
+  initial,
+  onRemoved,
+}: {
+  watch: Watch;
+  channelId: string;
+  name: string;
+  initial: string;
+  onRemoved: () => void;
+}) {
+  const update = useUpdateWatch();
+  const [draft, setDraft] = useState(initial);
+  const saved = useRef(initial);
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+
+  const flush = (value: string) => {
+    clearTimeout(timer.current);
+    if (value === saved.current || !value.trim()) return; // blank = not saved yet; use ✕ to remove
+    saved.current = value;
+    update.mutate({ id: watch.id, channel_notes: { [channelId]: value } });
+  };
+
+  const remove = () => {
+    clearTimeout(timer.current);
+    if (saved.current) update.mutate({ id: watch.id, channel_notes: { [channelId]: "" } });
+    onRemoved();
+  };
+
+  return (
+    <div className="channel-note">
+      <div className="channel-note-head">
+        <strong>#{name}</strong>
+        <span className="muted small">{update.isPending ? "Saving…" : draft.trim() && draft === saved.current ? "Saved" : ""}</span>
+        <button className="btn small ghost" title="Remove this note" onClick={remove}>
+          ✕
+        </button>
+      </div>
+      <textarea
+        rows={2}
+        value={draft}
+        autoFocus={!initial}
+        placeholder="Added to the server's criteria for this channel only, e.g. Also flag cameras or lenses under $50."
+        onChange={(e) => {
+          const value = e.target.value;
+          setDraft(value);
+          clearTimeout(timer.current);
+          timer.current = setTimeout(() => flush(value), AUTOSAVE_DELAY_MS);
+        }}
+        onBlur={() => flush(draft)}
+      />
+    </div>
+  );
+}
+
+/** Per-channel additions to a whole-server section's criteria. */
+function ChannelNotes({ watch, guild }: { watch: Watch; guild: Guild | undefined }) {
+  // Notes being written but not saved yet (a blank note isn't stored).
+  const [adding, setAdding] = useState<string[]>([]);
+  const channelName = new Map(guild?.channels.map((c) => [c.channel_id, c.name]) ?? []);
+  const ids = [...Object.keys(watch.channel_notes), ...adding.filter((id) => !(id in watch.channel_notes))];
+  const available = (guild?.channels ?? []).filter((c) => !ids.includes(c.channel_id));
+
+  return (
+    <div className="channel-notes">
+      <div className="channel-notes-head">
+        <span className="small">
+          <strong>Channel notes</strong>{" "}
+          <span className="muted">extra criteria for one channel, added to the server's</span>
+        </span>
+        <select
+          value=""
+          disabled={available.length === 0}
+          onChange={(e) => e.target.value && setAdding((a) => [...a, e.target.value])}
+        >
+          <option value="">+ Add a note for…</option>
+          {available.map((c) => (
+            <option key={c.channel_id} value={c.channel_id}>
+              {c.category ? `${c.category} / ` : ""}#{c.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      {ids.map((id) => (
+        <ChannelNoteEditor
+          key={id}
+          watch={watch}
+          channelId={id}
+          name={channelName.get(id) ?? "deleted channel"}
+          initial={watch.channel_notes[id] ?? ""}
+          onRemoved={() => setAdding((a) => a.filter((x) => x !== id))}
+        />
+      ))}
+    </div>
+  );
+}
+
 /** One watch inside a server group, collapsed by default (a server can have
  * many); rows without criteria say so instead of auto-expanding, which made
  * the page very long. A plain button rather than <details>, because clicks
@@ -227,6 +330,7 @@ function WatchRow({ watch, guild }: { watch: Watch; guild: Guild | undefined }) 
   const [open, setOpen] = useState(false);
   const name = watch.kind === "guild" ? "Whole server" : `#${watch.channel_name ?? watch.label.split(" › #").pop()}`;
   const excludedCount = watch.excluded_channel_ids.length + watch.excluded_category_ids.length;
+  const noteCount = Object.keys(watch.channel_notes).length;
   return (
     <div className={`watch-row${watch.enabled ? "" : " disabled"}`}>
       <div className="watch-row-head">
@@ -234,6 +338,7 @@ function WatchRow({ watch, guild }: { watch: Watch; guild: Guild | undefined }) 
           <span className="chevron">{open ? "▾" : "▸"}</span>
           <span className={watch.kind === "guild" ? "row-name whole" : "row-name"}>{name}</span>
           {excludedCount > 0 && <span className="tag">{excludedCount} excluded</span>}
+          {noteCount > 0 && <span className="tag">{noteCount} channel note{noteCount === 1 ? "" : "s"}</span>}
           {!open &&
             (watch.criteria.trim() ? (
               <span className="row-criteria muted small">{watch.criteria}</span>
@@ -247,7 +352,9 @@ function WatchRow({ watch, guild }: { watch: Watch; guild: Guild | undefined }) 
       {open && (
         <div className="watch-row-body">
           {watch.kind === "guild" && <Exclusions watch={watch} guild={guild} />}
-          <WatchDetails watch={watch} />
+          <WatchDetails watch={watch}>
+            {watch.kind === "guild" && <ChannelNotes watch={watch} guild={guild} />}
+          </WatchDetails>
         </div>
       )}
     </div>

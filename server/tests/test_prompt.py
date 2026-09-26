@@ -95,3 +95,15 @@ def test_user_prompt_names_the_channel_so_per_channel_criteria_can_work():
     p = build_user_prompt([item(1)], [], "general › memes")
     assert p.startswith("Channel: general › memes")
     assert "Channel:" not in build_user_prompt([item(1)], [])
+
+
+def test_channel_note_is_added_after_the_section_criteria():
+    s = build_system_prompt("", "Market (whole server)", "Anything addressed to me.", "Also flag cameras under $50.", "#want-to-sell")
+    assert s.index("Anything addressed to me.") < s.index("Also flag cameras under $50.")
+    assert "Extra criteria for #want-to-sell specifically (in addition to the above)" in s
+
+
+def test_blank_or_missing_channel_note_adds_nothing():
+    base = build_system_prompt("", "Market", "Anything addressed to me.")
+    assert build_system_prompt("", "Market", "Anything addressed to me.", "   ", "#x") == base
+    assert "Extra criteria" not in base
