@@ -68,7 +68,8 @@ export function useWatches() {
 export function useCreateWatch() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { channel_id: string; criteria?: string }) => api.post<Watch>("/watches", payload),
+    mutationFn: (payload: { channel_id?: string; guild_id?: string; criteria?: string }) =>
+      api.post<Watch>("/watches", payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["watches"] });
       qc.invalidateQueries({ queryKey: ["channels"] });

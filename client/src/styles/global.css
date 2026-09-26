@@ -228,6 +228,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .picker input { width: 100%; margin: 0.5rem 0; }
 .picker-list { max-height: 420px; overflow-y: auto; }
 .picker-list summary { cursor: pointer; font-weight: 600; padding: 0.4rem 0; }
+.picker-list .guild-watch { margin-left: 0.6rem; font-weight: 400; }
 .picker-list ul { list-style: none; margin: 0; padding: 0 0 0.5rem 1rem; }
 .picker-list li { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.25rem 0; font-size: 0.88rem; }
 

@@ -104,7 +104,7 @@ class WatchClient(discord.Client):
         if force or time.monotonic() - self._watches_loaded_at > WATCH_REFRESH_S:
             async with async_session() as db:
                 rows = (await db.execute(select(Watch))).scalars().all()
-            self._watches = [WatchRef(w.id, w.kind, w.channel_id, w.enabled, w.always_catch_up) for w in rows]
+            self._watches = [WatchRef(w.id, w.kind, w.channel_id, w.enabled, w.always_catch_up, w.guild_id) for w in rows]
             self._watches_loaded_at = time.monotonic()
         return self._watches
 
@@ -146,6 +146,7 @@ class WatchClient(discord.Client):
             parent_channel_id=str(channel.parent_id) if isinstance(channel, discord.Thread) else None,
             author_is_me=self._is_me(message.author),
             is_pending_request=_is_pending_request(channel),
+            guild_id=str(message.guild.id) if message.guild else None,
         )
         route = route_message(incoming, await self._load_watches())
         if route is None:
@@ -307,13 +308,29 @@ class WatchClient(discord.Client):
         BACKFILL_MAX_CHANNELS channels (most recently active first), one at a
         time with jitter."""
         watches = await self._load_watches(force=True)
-        by_kind = {w.kind: w for w in watches if w.enabled and w.kind != "channel"}
-        candidates: list[tuple[object, bool]] = []
+        by_kind = {w.kind: w for w in watches if w.enabled and w.kind in ("all_dms", "requests")}
+        # channel id -> always_catch_up. Channel watches go in first so a
+        # channel's own setting beats its whole-server watch's.
+        chosen: dict[int, tuple[object, bool]] = {}
         for w in watches:
             if w.kind == "channel" and w.enabled:
                 channel = self.get_channel(int(w.channel_id))
                 if channel is not None:
-                    candidates.append((channel, w.always_catch_up))
+                    chosen[channel.id] = (channel, w.always_catch_up)
+        for w in watches:
+            if w.kind == "guild" and w.enabled:
+                guild = self.get_guild(int(w.guild_id))
+                if guild is None:
+                    continue
+                me = guild.me
+                # Text channels only: forums have no history of their own
+                # (their posts are threads), and fetching every thread of a
+                # server would be exactly the REST fan-out to avoid.
+                for channel in guild.text_channels:
+                    if me is not None and not channel.permissions_for(me).read_messages:
+                        continue
+                    chosen.setdefault(channel.id, (channel, w.always_catch_up))
+        candidates: list[tuple[object, bool]] = list(chosen.values())
         for channel in self.private_channels:
             watch = by_kind.get("requests" if _is_pending_request(channel) else "all_dms")
             if watch is not None:

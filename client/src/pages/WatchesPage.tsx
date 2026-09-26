@@ -16,6 +16,8 @@ import type { Watch } from "../api/types";
 const AUTOSAVE_DELAY_MS = 800;
 
 const BUILTIN_HINT: Record<string, string> = {
+  guild:
+    "Every channel you can read in this server, including threads, forum posts and channels added later. Channels you also watch on their own use their own criteria instead. Busy servers mean more for the model to judge, so keep an eye on the waiting count.",
   all_dms: "Every direct message and group DM from people you've accepted.",
   requests: "Incoming friend requests and message requests from people who aren't friends yet.",
 };
@@ -108,7 +110,7 @@ function WatchCard({ watch }: { watch: Watch }) {
         >
           {reclassify.data ? `Re-judging ${reclassify.data.queued}` : "Re-judge all"}
         </button>
-        {watch.kind === "channel" && (
+        {(watch.kind === "channel" || watch.kind === "guild") && (
           <button
             className="btn danger ghost"
             onClick={() => confirm(`Stop watching ${watch.label}? Its stored items are deleted.`) && del.mutate(watch.id)}
@@ -176,7 +178,7 @@ function AddChannel({ onDone }: { onDone: () => void }) {
   return (
     <section className="watch-card picker">
       <header className="watch-head">
-        <h3>Add a channel</h3>
+        <h3>Add a channel or server</h3>
         <button className="btn ghost" onClick={onDone}>
           Close
         </button>
@@ -190,7 +192,23 @@ function AddChannel({ onDone }: { onDone: () => void }) {
       <div className="picker-list">
         {filtered.map((g) => (
           <details key={g.guild_id} open={!!query}>
-            <summary>{g.guild_name}</summary>
+            <summary>
+              {g.guild_name}
+              {g.watched ? (
+                <span className="muted small"> · whole server watched</span>
+              ) : (
+                <button
+                  className="btn small guild-watch"
+                  disabled={create.isPending}
+                  onClick={(e) => {
+                    e.preventDefault(); // don't toggle the <details>
+                    create.mutate({ guild_id: g.guild_id }, { onSuccess: onDone });
+                  }}
+                >
+                  Watch whole server
+                </button>
+              )}
+            </summary>
             <ul>
               {g.channels.map((c) => (
                 <li key={c.channel_id}>
@@ -228,7 +246,7 @@ export default function WatchesPage() {
         <h1>Watching</h1>
         {!adding && (
           <button className="btn primary" onClick={() => setAdding(true)}>
-            + Add channel
+            + Add channel or server
           </button>
         )}
       </div>

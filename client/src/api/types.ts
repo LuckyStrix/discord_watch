@@ -25,7 +25,7 @@ export interface Item {
 
 export interface Watch {
   id: number;
-  kind: "channel" | "all_dms" | "requests";
+  kind: "channel" | "guild" | "all_dms" | "requests";
   guild_id: string | null;
   channel_id: string | null;
   label: string;
@@ -50,6 +50,7 @@ export interface TestResult {
 export interface Guild {
   guild_id: string;
   guild_name: string;
+  watched: boolean;
   channels: { channel_id: string; name: string; category: string | null; watched: boolean }[];
 }
 

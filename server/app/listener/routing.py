@@ -14,6 +14,7 @@ class WatchRef:
     channel_id: str | None
     enabled: bool
     always_catch_up: bool = False
+    guild_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,7 @@ class IncomingMessage:
     parent_channel_id: str | None
     author_is_me: bool
     is_pending_request: bool
+    guild_id: str | None = None
 
 
 def route_message(msg: IncomingMessage, watches: list[WatchRef]) -> Route | None:
@@ -47,8 +49,12 @@ def route_message(msg: IncomingMessage, watches: list[WatchRef]) -> Route | None
         dms = next((w for w in enabled if w.kind == "all_dms"), None)
         return Route(dms.id, "message") if dms else None
 
+    # Most specific wins: a channel watched on its own (or a thread under it)
+    # uses that channel's criteria even when its whole server is also watched.
     by_channel = {w.channel_id: w for w in enabled if w.kind == "channel"}
     watch = by_channel.get(msg.channel_id) or (by_channel.get(msg.parent_channel_id) if msg.parent_channel_id else None)
+    if watch is None and msg.guild_id:
+        watch = next((w for w in enabled if w.kind == "guild" and w.guild_id == msg.guild_id), None)
     return Route(watch.id, "message") if watch else None
 
 

@@ -50,7 +50,10 @@ class WatchRead(BaseModel):
 
 
 class WatchCreate(BaseModel):
-    channel_id: str
+    """Exactly one of channel_id (one channel) or guild_id (a whole server)."""
+
+    channel_id: str | None = None
+    guild_id: str | None = None
     criteria: str = ""
 
 
@@ -81,6 +84,7 @@ class ChannelRead(BaseModel):
 class GuildRead(BaseModel):
     guild_id: str
     guild_name: str
+    watched: bool
     channels: list[ChannelRead]
 
 

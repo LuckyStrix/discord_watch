@@ -5,10 +5,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
 
-# The two non-channel kinds are singletons seeded by the initial migration --
+# "guild" watches a whole server (every channel the account can read, plus
+# channels created later); a channel watch inside it takes precedence.
+# The all_dms/requests kinds are singletons seeded by the initial migration --
 # they exist so DMs and requests get their own editable criteria just like a
 # channel does, and can't be deleted (only disabled).
-WATCH_KINDS = ("channel", "all_dms", "requests")
+WATCH_KINDS = ("channel", "guild", "all_dms", "requests")
 
 
 class Watch(Base):
@@ -16,6 +18,7 @@ class Watch(Base):
     __table_args__ = (
         CheckConstraint(f"kind IN {WATCH_KINDS}", name="ck_watches_kind"),
         CheckConstraint("kind <> 'channel' OR channel_id IS NOT NULL", name="ck_watches_channel_has_id"),
+        CheckConstraint("kind <> 'guild' OR guild_id IS NOT NULL", name="ck_watches_guild_has_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

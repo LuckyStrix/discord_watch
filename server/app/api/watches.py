@@ -12,7 +12,7 @@ router = APIRouter(prefix="/watches", tags=["watches"])
 
 TEST_SAMPLE = 20
 # Built-ins sort first, in this order, then channels by server/name.
-KIND_ORDER = {"all_dms": 0, "requests": 1, "channel": 2}
+KIND_ORDER = {"all_dms": 0, "requests": 1, "guild": 2, "channel": 3}
 
 
 async def _counts(db: AsyncSession) -> dict[int, tuple[int, int]]:
@@ -44,6 +44,10 @@ async def list_watches(db: AsyncSession = Depends(get_db)):
 
 @router.post("", response_model=WatchRead, status_code=201)
 async def create_watch(payload: WatchCreate, db: AsyncSession = Depends(get_db)):
+    if (payload.channel_id is None) == (payload.guild_id is None):
+        raise HTTPException(status_code=422, detail="Give exactly one of channel_id or guild_id")
+    if payload.guild_id is not None:
+        return await _create_guild_watch(payload.guild_id, payload.criteria, db)
     channel = await db.get(DiscordChannel, payload.channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Unknown channel -- is the listener connected?")
@@ -57,6 +61,24 @@ async def create_watch(payload: WatchCreate, db: AsyncSession = Depends(get_db))
         label=f"{channel.guild_name} › #{channel.name}",
         criteria=payload.criteria,
     )
+    db.add(watch)
+    await db.commit()
+    await db.refresh(watch)
+    return _to_read(watch, {})
+
+
+async def _create_guild_watch(guild_id: str, criteria: str, db: AsyncSession) -> WatchRead:
+    known = (
+        await db.execute(select(DiscordChannel.guild_name).where(DiscordChannel.guild_id == guild_id).limit(1))
+    ).scalar_one_or_none()
+    if known is None:
+        raise HTTPException(status_code=404, detail="Unknown server -- is the listener connected?")
+    existing = (
+        await db.execute(select(Watch).where(Watch.kind == "guild", Watch.guild_id == guild_id))
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=409, detail="That server is already watched")
+    watch = Watch(kind="guild", guild_id=guild_id, label=f"{known} (whole server)", criteria=criteria)
     db.add(watch)
     await db.commit()
     await db.refresh(watch)
@@ -83,7 +105,7 @@ async def update_watch(watch_id: int, payload: WatchUpdate, db: AsyncSession = D
 @router.delete("/{watch_id}", status_code=204)
 async def delete_watch(watch_id: int, db: AsyncSession = Depends(get_db)):
     watch = await _get(db, watch_id)
-    if watch.kind != "channel":
+    if watch.kind in ("all_dms", "requests"):
         raise HTTPException(status_code=400, detail="Built-in sections can be disabled, not deleted")
     await db.delete(watch)
     await db.commit()
