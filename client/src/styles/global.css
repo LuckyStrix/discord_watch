@@ -225,11 +225,36 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .test-results th, .test-results td { text-align: left; padding: 0.4rem; border-bottom: 1px solid var(--border); vertical-align: top; }
 .test-results th { color: var(--muted); font-weight: 600; }
 
-.picker input { width: 100%; margin: 0.5rem 0; }
+/* Server groups on the Watching page */
+.server-group { padding-bottom: 0.4rem; }
+.watch-row { border-top: 1px solid var(--border); padding: 0.45rem 0; }
+.watch-row.disabled { opacity: 0.6; }
+.watch-row-head, .picker-guild-head { display: flex; align-items: center; gap: 0.6rem; }
+.row-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0.2rem 0;
+}
+.chevron { width: 1rem; color: var(--muted); flex-shrink: 0; }
+.row-name { font-weight: 600; white-space: nowrap; }
+.row-name.whole { font-style: italic; }
+.row-criteria { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.watch-row-body { padding: 0.25rem 0 0.5rem 1.5rem; }
+
+.picker input[type="text"], .picker input:not([type]) { width: 100%; margin: 0.5rem 0; }
+.picker-guild { border-top: 1px solid var(--border); padding: 0.2rem 0; }
+.picker-list .toggle input { margin: 0; }
 .picker-list { max-height: 420px; overflow-y: auto; }
-.picker-list summary { cursor: pointer; font-weight: 600; padding: 0.4rem 0; }
-.picker-list .guild-watch { margin-left: 0.6rem; font-weight: 400; }
-.picker-list ul { list-style: none; margin: 0; padding: 0 0 0.5rem 1rem; }
+.picker-list ul { list-style: none; margin: 0; padding: 0 0 0.5rem 1.5rem; }
 .picker-list li { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.25rem 0; font-size: 0.88rem; }
 
 /* Settings */

@@ -34,12 +34,38 @@ def _to_read(w: Watch, counts: dict[int, tuple[int, int]]) -> WatchRead:
     return read
 
 
+async def _directory_names(db: AsyncSession, watches: list[Watch]) -> dict[str, tuple[str, str, str]]:
+    """channel_id -> (guild_id, guild_name, channel_name) for every channel in
+    a server that has any watch, so both channel and whole-server watches can
+    be labelled from the live directory (names follow renames)."""
+    guild_ids = {w.guild_id for w in watches if w.guild_id}
+    if not guild_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(DiscordChannel.channel_id, DiscordChannel.guild_id, DiscordChannel.guild_name, DiscordChannel.name)
+            .where(DiscordChannel.guild_id.in_(guild_ids))
+        )
+    ).all()
+    return {cid: (gid, gname, cname) for cid, gid, gname, cname in rows}
+
+
 @router.get("", response_model=list[WatchRead])
 async def list_watches(db: AsyncSession = Depends(get_db)):
     watches = (await db.execute(select(Watch))).scalars().all()
     counts = await _counts(db)
+    directory = await _directory_names(db, watches)
+    guild_names = {gid: gname for gid, gname, _ in directory.values()}
     watches = sorted(watches, key=lambda w: (KIND_ORDER.get(w.kind, 9), w.label.lower()))
-    return [_to_read(w, counts) for w in watches]
+    result = []
+    for w in watches:
+        read = _to_read(w, counts)
+        if w.guild_id:
+            read.guild_name = guild_names.get(w.guild_id)
+        if w.channel_id and w.channel_id in directory:
+            read.channel_name = directory[w.channel_id][2]
+        result.append(read)
+    return result
 
 
 @router.post("", response_model=WatchRead, status_code=201)

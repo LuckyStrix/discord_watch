@@ -47,6 +47,9 @@ class WatchRead(BaseModel):
     created_at: datetime
     pending_count: int = 0
     attention_count: int = 0
+    # From the channel directory, for grouping the Watching page by server.
+    guild_name: str | None = None
+    channel_name: str | None = None
 
 
 class WatchCreate(BaseModel):
@@ -78,13 +81,13 @@ class ChannelRead(BaseModel):
     channel_id: str
     name: str
     category: str | None
-    watched: bool
+    watch_id: int | None  # None = not watched
 
 
 class GuildRead(BaseModel):
     guild_id: str
     guild_name: str
-    watched: bool
+    watch_id: int | None  # the whole-server watch, if any
     channels: list[ChannelRead]
 
 

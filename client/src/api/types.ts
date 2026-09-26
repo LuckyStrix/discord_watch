@@ -35,6 +35,8 @@ export interface Watch {
   created_at: string;
   pending_count: number;
   attention_count: number;
+  guild_name: string | null;
+  channel_name: string | null;
 }
 
 export interface TestResult {
@@ -50,8 +52,8 @@ export interface TestResult {
 export interface Guild {
   guild_id: string;
   guild_name: string;
-  watched: boolean;
-  channels: { channel_id: string; name: string; category: string | null; watched: boolean }[];
+  watch_id: number | null;
+  channels: { channel_id: string; name: string; category: string | null; watch_id: number | null }[];
 }
 
 export interface AppSettings {

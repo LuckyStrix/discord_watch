@@ -21,6 +21,7 @@ For EACH numbered item, decide:
   - "fyi": mildly relevant; worth a glance later, no action needed.
   - "ignore": chatter, memes, bots, spam, or anything not matching the criteria.
 - needs_reply: true only if someone is waiting on the user to respond.
+The criteria may treat specific channels differently; the "Channel:" line says which channel these items are from.
 Judge only the numbered items. Earlier messages are context only.
 Return one result per numbered item, using its number as "id"."""
 
@@ -103,8 +104,11 @@ def _describe(item: PromptItem) -> str:
     return f"#{item.id} {item.author_name or 'unknown'}{flag_text}: {_clip(item.content) or '(no text)'}"
 
 
-def build_user_prompt(items: list[PromptItem], context: list[ContextLine]) -> str:
-    parts = []
+def build_user_prompt(items: list[PromptItem], context: list[ContextLine], where: str | None = None) -> str:
+    """`where` names the channel/conversation. Each call covers exactly one,
+    and without it criteria like "be stricter in #memes" in a whole-server
+    section can't work -- the model would only see the section's name."""
+    parts = [f"Channel: {where}"] if where else []
     if context:
         lines = "\n".join(f"- {c.author_name or 'unknown'}: {_clip(c.content)}" for c in context)
         parts.append(f"Earlier messages (context only, do not judge):\n{lines}")

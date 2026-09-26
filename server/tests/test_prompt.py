@@ -89,3 +89,9 @@ def test_long_reasons_are_clipped_not_rejected():
     result = BatchResult(results=[ItemResult(id=1, importance="fyi", needs_reply=False, reason="word " * 200)])
     d = apply_results([item(1)], result)
     assert len(d[1].reason) <= 300 and d[1].reason.endswith("…")
+
+
+def test_user_prompt_names_the_channel_so_per_channel_criteria_can_work():
+    p = build_user_prompt([item(1)], [], "general › memes")
+    assert p.startswith("Channel: general › memes")
+    assert "Channel:" not in build_user_prompt([item(1)], [])
