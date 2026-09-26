@@ -109,6 +109,19 @@ def test_always_catch_up_on_first_run_falls_back_to_unread_only():
     assert needs_backfill("500", "400", None, always=True, offline_since=None) == 400
 
 
+def test_never_opened_channel_is_capped_by_age_not_fetched_from_the_beginning():
+    # No read marker, nothing stored: without the age cap this meant "fetch the
+    # newest 25 whatever their age" -- years-old messages treated as new.
+    assert needs_backfill("500", None, None, oldest_allowed=450) == 450
+    # Whole channel is older than the cap: nothing to fetch at all.
+    assert needs_backfill("400", None, None, oldest_allowed=450) is None
+    # The cap also bounds "always catch up" and ordinary unread channels.
+    assert needs_backfill("500", "100", None, oldest_allowed=450) == 450
+    assert needs_backfill("500", "500", None, always=True, offline_since=100, oldest_allowed=450) == 450
+    # A newer read marker / stored message still wins over the cap.
+    assert needs_backfill("500", "480", None, oldest_allowed=450) == 480
+
+
 def test_backfill_compares_snowflakes_numerically():
     # Lexically "99" > "100"; numerically it isn't.
     assert needs_backfill("100", "99", None) == 99

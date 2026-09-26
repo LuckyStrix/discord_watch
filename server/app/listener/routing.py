@@ -79,6 +79,7 @@ def needs_backfill(
     *,
     always: bool = False,
     offline_since: int | None = None,
+    oldest_allowed: int | None = None,
 ) -> int | None:
     """Decides whether a channel has messages we haven't stored yet, and if so
     returns the snowflake to fetch history *after* (0 = no known floor, just
@@ -94,7 +95,12 @@ def needs_backfill(
     listener was down. Its floor is instead `offline_since`, the snowflake of
     when the listener last ran, so it fetches exactly the downtime gap. With no
     `offline_since` (first ever run) there is no gap to fill, so it falls
-    back to the unread-only rule."""
+    back to the unread-only rule.
+
+    `oldest_allowed` is a hard age floor under every rule. Without it, a
+    channel that was never opened (no read marker) and never stored counted
+    as "unread since forever", and catch-up pulled in years-old messages
+    (a 2021 #rules post, months-old helpdesk tickets) as if they were new."""
     if not last_message_id:
         return None
     last = int(last_message_id)
@@ -103,4 +109,6 @@ def needs_backfill(
         floor = max(stored, offline_since)
     else:
         floor = max(int(acked_message_id or 0), stored)
+    if oldest_allowed is not None:
+        floor = max(floor, oldest_allowed)
     return floor if last > floor else None

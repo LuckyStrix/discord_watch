@@ -32,8 +32,9 @@ WATCH_REFRESH_S = 30
 HEARTBEAT_S = 30
 BACKFILL_LIMIT = 25
 BACKFILL_MAX_CHANNELS = 30
-# How far back "always catch up" reaches after a long outage (a week away
-# shouldn't turn into hundreds of history requests on the next boot).
+# How far back any catch-up may reach -- "always catch up" after a long
+# outage, and unread channels that were never opened (which have no read
+# marker, so would otherwise count as unread back to the channel's creation).
 MAX_CATCH_UP_DAYS = 3
 BACKFILL_DELAY_S = (2.0, 4.0)
 CONTENT_MAX = 4000
@@ -355,6 +356,7 @@ class WatchClient(discord.Client):
             if watch is not None:
                 candidates.append((channel, watch.always_catch_up))
         offline_since = self._offline_since()
+        oldest_allowed = discord.utils.time_snowflake(_now() - timedelta(days=MAX_CATCH_UP_DAYS))
 
         async with async_session() as db:
             # Cast: snowflakes are stored as strings, and string max() is wrong
@@ -378,6 +380,7 @@ class WatchClient(discord.Client):
                 str(last_stored) if last_stored else None,
                 always=always,
                 offline_since=offline_since,
+                oldest_allowed=oldest_allowed,
             )
             if after is not None:
                 todo.append((channel, after))
