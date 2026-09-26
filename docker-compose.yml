@@ -24,7 +24,10 @@ services:
       - ${DB_DATA_LOCATION:-./postgres-data}:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-watch}"]
+      # -d matters: without it pg_isready connects to a database named after
+      # the user ("watch"), which doesn't exist, and Postgres logs a FATAL
+      # line on every check even though the result is still "ready".
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-watch} -d ${DB_NAME:-discord_watch}"]
       interval: 5s
       timeout: 5s
       retries: 10
