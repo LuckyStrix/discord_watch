@@ -1,0 +1,133 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { api } from "./client";
+import type { AppSettings, Guild, Item, OllamaModel, Status, TestResult, Watch } from "./types";
+
+// Everything the inbox shows is refreshed on this cadence; the classifier
+// batches every ~45s, so polling faster than this buys nothing.
+export const POLL_MS = 15_000;
+
+// Items
+
+export type ItemFilter = "attention" | "all";
+
+export function useItems(filter: ItemFilter, watchId: number | null) {
+  const params = new URLSearchParams({ filter });
+  if (watchId !== null) params.set("watch_id", String(watchId));
+  return useQuery({
+    queryKey: ["items", filter, watchId],
+    queryFn: () => api.get<Item[]>(`/items?${params}`),
+    refetchInterval: POLL_MS,
+  });
+}
+
+function useInvalidateItems() {
+  const qc = useQueryClient();
+  return () => {
+    qc.invalidateQueries({ queryKey: ["items"] });
+    qc.invalidateQueries({ queryKey: ["status"] });
+    qc.invalidateQueries({ queryKey: ["watches"] });
+  };
+}
+
+export function useUpdateItem() {
+  const invalidate = useInvalidateItems();
+  return useMutation({
+    mutationFn: ({ id, ...payload }: { id: number; seen?: boolean; dismissed?: boolean }) =>
+      api.patch<Item>(`/items/${id}`, payload),
+    onSuccess: invalidate,
+  });
+}
+
+export function useBulkUpdateItems() {
+  const invalidate = useInvalidateItems();
+  return useMutation({
+    mutationFn: (payload: { ids: number[]; seen?: boolean; dismissed?: boolean }) =>
+      api.post<{ updated: number }>("/items/bulk", payload),
+    onSuccess: invalidate,
+  });
+}
+
+export function useReclassifyItem() {
+  const invalidate = useInvalidateItems();
+  return useMutation({
+    mutationFn: (id: number) => api.post<Item>(`/items/${id}/reclassify`),
+    onSuccess: invalidate,
+  });
+}
+
+// Watches
+
+export function useWatches() {
+  return useQuery({ queryKey: ["watches"], queryFn: () => api.get<Watch[]>("/watches"), refetchInterval: POLL_MS });
+}
+
+export function useCreateWatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { channel_id: string; criteria?: string }) => api.post<Watch>("/watches", payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["watches"] });
+      qc.invalidateQueries({ queryKey: ["channels"] });
+    },
+  });
+}
+
+export function useUpdateWatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...payload }: { id: number; label?: string; criteria?: string; enabled?: boolean }) =>
+      api.patch<Watch>(`/watches/${id}`, payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["watches"] }),
+  });
+}
+
+export function useDeleteWatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete<void>(`/watches/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["watches"] });
+      qc.invalidateQueries({ queryKey: ["channels"] });
+      qc.invalidateQueries({ queryKey: ["items"] });
+    },
+  });
+}
+
+export function useTestWatch() {
+  return useMutation({ mutationFn: (id: number) => api.post<TestResult[]>(`/watches/${id}/test`) });
+}
+
+export function useReclassifyWatch() {
+  const invalidate = useInvalidateItems();
+  return useMutation({
+    mutationFn: (id: number) => api.post<{ queued: number }>(`/watches/${id}/reclassify`),
+    onSuccess: invalidate,
+  });
+}
+
+export function useChannels(enabled: boolean) {
+  return useQuery({ queryKey: ["channels"], queryFn: () => api.get<Guild[]>("/discord/channels"), enabled });
+}
+
+// Settings / status
+
+export function useSettings() {
+  return useQuery({ queryKey: ["settings"], queryFn: () => api.get<AppSettings>("/settings") });
+}
+
+export function useUpdateSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Partial<AppSettings>) => api.patch<AppSettings>("/settings", payload),
+    onSuccess: (data) => qc.setQueryData(["settings"], data),
+  });
+}
+
+export function useOllamaModels() {
+  return useQuery({ queryKey: ["ollama-models"], queryFn: () => api.get<OllamaModel[]>("/settings/ollama-models") });
+}
+
+export function useStatus() {
+  return useQuery({ queryKey: ["status"], queryFn: () => api.get<Status>("/status"), refetchInterval: POLL_MS });
+}

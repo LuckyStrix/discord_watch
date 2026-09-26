@@ -1,0 +1,30 @@
+from datetime import datetime
+
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Integer, String, Text, func
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db import Base
+
+# The two non-channel kinds are singletons seeded by the initial migration --
+# they exist so DMs and requests get their own editable criteria just like a
+# channel does, and can't be deleted (only disabled).
+WATCH_KINDS = ("channel", "all_dms", "requests")
+
+
+class Watch(Base):
+    __tablename__ = "watches"
+    __table_args__ = (
+        CheckConstraint(f"kind IN {WATCH_KINDS}", name="ck_watches_kind"),
+        CheckConstraint("kind <> 'channel' OR channel_id IS NOT NULL", name="ck_watches_channel_has_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    # Discord snowflakes are kept as strings everywhere: they exceed 2**53, so
+    # as JSON numbers they'd silently lose precision in the browser.
+    guild_id: Mapped[str | None] = mapped_column(String(32))
+    channel_id: Mapped[str | None] = mapped_column(String(32), unique=True)
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    criteria: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

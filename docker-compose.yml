@@ -1,0 +1,65 @@
+name: discord_watch
+
+x-app: &app
+  build: ./server
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+asyncpg://${DB_USER:-watch}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-discord_watch}
+    OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+  depends_on:
+    postgres:
+      condition: service_healthy
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER:-watch}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-discord_watch}
+    volumes:
+      - ${DB_DATA_LOCATION:-./postgres-data}:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-watch}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # The only service that runs migrations; the listener and classifier wait on
+  # it being healthy so they never start against a stale schema.
+  server:
+    <<: *app
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # Holds the (read-only) Discord gateway session. Exactly one replica --
+  # two would mean two logged-in sessions and duplicate items.
+  listener:
+    <<: *app
+    command: python -m app.listener_main
+    depends_on:
+      server:
+        condition: service_healthy
+
+  classifier:
+    <<: *app
+    command: python -m app.classifier_main
+    depends_on:
+      server:
+        condition: service_healthy
+
+  client:
+    build: ./client
+    ports:
+      - "${WEB_PORT:-8095}:80"
+    depends_on:
+      - server
+    restart: unless-stopped
