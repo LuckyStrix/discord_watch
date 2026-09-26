@@ -334,7 +334,9 @@ class WatchClient(discord.Client):
         for w in watches:
             if w.kind == "channel" and w.enabled:
                 channel = self.get_channel(int(w.channel_id))
-                if channel is not None:
+                # A watched forum has no history() (see the guild loop below);
+                # routing still catches its live posts.
+                if channel is not None and not isinstance(channel, discord.ForumChannel):
                     chosen[channel.id] = (channel, w.always_catch_up)
         for w in watches:
             if w.kind == "guild" and w.enabled:

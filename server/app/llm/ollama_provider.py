@@ -14,7 +14,10 @@ class OllamaProvider(LLMProvider):
         # num_thread caps the CPU cost of a batch; temperature 0 because this
         # is a judgement call we want to be repeatable, not creative.
         self._options = {"num_gpu": 0, "num_thread": num_thread, "num_ctx": num_ctx, "temperature": 0}
-        self._client = AsyncClient(host=settings.ollama_base_url)
+        # httpx's default here is no timeout at all, so a wedged Ollama would
+        # hang the classifier loop forever. Generous because a CPU-only batch
+        # is slow; a timeout raises like any other failure and gets retried.
+        self._client = AsyncClient(host=settings.ollama_base_url, timeout=300)
 
     def model_name(self) -> str:
         return self._model

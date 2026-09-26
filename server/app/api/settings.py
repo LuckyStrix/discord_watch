@@ -30,7 +30,7 @@ async def update_settings(payload: SettingsUpdate, db: AsyncSession = Depends(ge
 
 @router.get("/settings/ollama-models")
 async def list_ollama_models():
-    client = AsyncClient(host=app_config.ollama_base_url)
+    client = AsyncClient(host=app_config.ollama_base_url, timeout=10)
     try:
         response = await client.list()
     except Exception as exc:  # noqa: BLE001 -- surface any connectivity issue to the UI
