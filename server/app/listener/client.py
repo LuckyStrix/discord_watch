@@ -61,6 +61,14 @@ def _channel_label(channel) -> str | None:
     return getattr(channel, "name", None)
 
 
+def _category_id(channel) -> str | None:
+    """A channel's category; for a thread or forum post, its parent's."""
+    if isinstance(channel, discord.Thread):
+        channel = channel.parent
+    category_id = getattr(channel, "category_id", None)
+    return str(category_id) if category_id else None
+
+
 def _is_pending_request(channel) -> bool:
     if isinstance(channel, discord.DMChannel):
         return channel.is_message_request() and not channel.is_accepted()
@@ -104,7 +112,13 @@ class WatchClient(discord.Client):
         if force or time.monotonic() - self._watches_loaded_at > WATCH_REFRESH_S:
             async with async_session() as db:
                 rows = (await db.execute(select(Watch))).scalars().all()
-            self._watches = [WatchRef(w.id, w.kind, w.channel_id, w.enabled, w.always_catch_up, w.guild_id) for w in rows]
+            self._watches = [
+                WatchRef(
+                    w.id, w.kind, w.channel_id, w.enabled, w.always_catch_up, w.guild_id,
+                    frozenset(w.excluded_channel_ids or []), frozenset(w.excluded_category_ids or []),
+                )
+                for w in rows
+            ]
             self._watches_loaded_at = time.monotonic()
         return self._watches
 
@@ -147,6 +161,7 @@ class WatchClient(discord.Client):
             author_is_me=self._is_me(message.author),
             is_pending_request=_is_pending_request(channel),
             guild_id=str(message.guild.id) if message.guild else None,
+            category_id=_category_id(channel),
         )
         route = route_message(incoming, await self._load_watches())
         if route is None:
@@ -248,6 +263,8 @@ class WatchClient(discord.Client):
                         guild_id=str(guild.id),
                         guild_name=guild.name,
                         category=channel.category.name if channel.category else None,
+                        category_id=str(channel.category.id) if channel.category else None,
+                        category_position=channel.category.position if channel.category else -1,
                         name=channel.name,
                         position=channel.position,
                     )
@@ -328,6 +345,8 @@ class WatchClient(discord.Client):
                 # server would be exactly the REST fan-out to avoid.
                 for channel in guild.text_channels:
                     if me is not None and not channel.permissions_for(me).read_messages:
+                        continue
+                    if w.excludes(str(channel.id), None, _category_id(channel)):
                         continue
                     chosen.setdefault(channel.id, (channel, w.always_catch_up))
         candidates: list[tuple[object, bool]] = list(chosen.values())

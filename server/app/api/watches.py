@@ -121,7 +121,13 @@ async def _get(db: AsyncSession, watch_id: int) -> Watch:
 @router.patch("/{watch_id}", response_model=WatchRead)
 async def update_watch(watch_id: int, payload: WatchUpdate, db: AsyncSession = Depends(get_db)):
     watch = await _get(db, watch_id)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    if watch.kind != "guild" and ({"excluded_channel_ids", "excluded_category_ids"} & changes.keys()):
+        raise HTTPException(status_code=400, detail="Only whole-server sections have exclusions")
+    for key in ("excluded_channel_ids", "excluded_category_ids"):
+        if key in changes:
+            changes[key] = sorted(set(changes[key]))
+    for field, value in changes.items():
         setattr(watch, field, value)
     await db.commit()
     await db.refresh(watch)

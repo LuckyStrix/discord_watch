@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -34,4 +35,9 @@ class Watch(Base):
     # This opts a section into fetching the whole downtime gap regardless --
     # for muted channels, or ones read on another device while the PC was off.
     always_catch_up: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # Whole-server watches only: channel / category ids carved out of the
+    # server. Excluding a category also covers channels added to it later.
+    # An explicit channel watch still wins over either.
+    excluded_channel_ids: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    excluded_category_ids: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

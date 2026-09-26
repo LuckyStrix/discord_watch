@@ -253,6 +253,19 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .picker input[type="text"], .picker input:not([type]) { width: 100%; margin: 0.5rem 0; }
 .picker-guild { border-top: 1px solid var(--border); padding: 0.2rem 0; }
 .picker-list .toggle input { margin: 0; }
+.picker-category-head { padding: 0.35rem 0 0.1rem 1.5rem; font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); }
+.picker-list li.muted { color: var(--muted); }
+/* "own criteria" on every row is noisy: reveal on hover where hover exists
+   (phones have no hover, so it stays visible there). */
+@media (hover: hover) {
+  .picker-list .own-btn { visibility: hidden; }
+  .picker-list li:hover .own-btn, .picker-list .own-btn:focus { visibility: visible; }
+}
+
+.exclusions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0.2rem 0 0.5rem; }
+.chip { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.1rem 0.2rem 0.1rem 0.55rem; border: 1px solid var(--border); border-radius: 999px; font-size: 0.8rem; }
+.chip button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 0.75rem; padding: 0 0.3rem; }
+.chip button:hover { color: var(--danger); }
 .picker-list { max-height: 420px; overflow-y: auto; }
 .picker-list ul { list-style: none; margin: 0; padding: 0 0 0.5rem 1.5rem; }
 .picker-list li { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.25rem 0; font-size: 0.88rem; }

@@ -10,7 +10,7 @@ import {
   useUpdateWatch,
   useWatches,
 } from "../api/hooks";
-import type { Watch } from "../api/types";
+import type { Guild, Watch } from "../api/types";
 
 // Same two-layer save as notes_app's NoteViewerPage: debounce while typing,
 // plus an immediate flush on blur so clicking away never loses an edit.
@@ -183,19 +183,57 @@ function BuiltinCard({ watch }: { watch: Watch }) {
   );
 }
 
+/** Channels and categories carved out of a whole-server watch, each with a
+ * button to put it back. Names come from the live channel directory. */
+function Exclusions({ watch, guild }: { watch: Watch; guild: Guild | undefined }) {
+  const update = useUpdateWatch();
+  const channelName = new Map(guild?.channels.map((c) => [c.channel_id, c.name]) ?? []);
+  const categoryName = new Map(
+    guild?.channels.filter((c) => c.category_id).map((c) => [c.category_id!, c.category ?? "category"]) ?? [],
+  );
+  const chips = [
+    ...watch.excluded_category_ids.map((id) => ({
+      key: `cat:${id}`,
+      label: `${categoryName.get(id) ?? "unknown category"} (category)`,
+      remove: () => update.mutate({ id: watch.id, excluded_category_ids: watch.excluded_category_ids.filter((x) => x !== id) }),
+    })),
+    ...watch.excluded_channel_ids.map((id) => ({
+      key: `ch:${id}`,
+      label: `#${channelName.get(id) ?? "deleted channel"}`,
+      remove: () => update.mutate({ id: watch.id, excluded_channel_ids: watch.excluded_channel_ids.filter((x) => x !== id) }),
+    })),
+  ];
+  if (chips.length === 0) return null;
+  return (
+    <div className="exclusions">
+      <span className="muted small">Not watching:</span>
+      {chips.map((c) => (
+        <span key={c.key} className="chip">
+          {c.label}
+          <button title="Watch this again" disabled={update.isPending} onClick={c.remove}>
+            ✕
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /** One watch inside a server group, collapsed by default (a server can have
  * many); rows without criteria say so instead of auto-expanding, which made
  * the page very long. A plain button rather than <details>, because clicks
  * on the On/Off checkbox inside a <summary> toggle it too. */
-function WatchRow({ watch }: { watch: Watch }) {
+function WatchRow({ watch, guild }: { watch: Watch; guild: Guild | undefined }) {
   const [open, setOpen] = useState(false);
   const name = watch.kind === "guild" ? "Whole server" : `#${watch.channel_name ?? watch.label.split(" › #").pop()}`;
+  const excludedCount = watch.excluded_channel_ids.length + watch.excluded_category_ids.length;
   return (
     <div className={`watch-row${watch.enabled ? "" : " disabled"}`}>
       <div className="watch-row-head">
         <button className="row-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
           <span className="chevron">{open ? "▾" : "▸"}</span>
           <span className={watch.kind === "guild" ? "row-name whole" : "row-name"}>{name}</span>
+          {excludedCount > 0 && <span className="tag">{excludedCount} excluded</span>}
           {!open &&
             (watch.criteria.trim() ? (
               <span className="row-criteria muted small">{watch.criteria}</span>
@@ -208,6 +246,7 @@ function WatchRow({ watch }: { watch: Watch }) {
       </div>
       {open && (
         <div className="watch-row-body">
+          {watch.kind === "guild" && <Exclusions watch={watch} guild={guild} />}
           <WatchDetails watch={watch} />
         </div>
       )}
@@ -247,7 +286,7 @@ function groupByServer(watches: Watch[]): ServerGroupData[] {
   return all.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function ServerGroup({ group }: { group: ServerGroupData }) {
+function ServerGroup({ group, guild }: { group: ServerGroupData; guild: Guild | undefined }) {
   const attention = group.watches.reduce((n, w) => n + w.attention_count, 0);
   const pending = group.watches.reduce((n, w) => n + w.pending_count, 0);
   return (
@@ -260,17 +299,37 @@ function ServerGroup({ group }: { group: ServerGroupData }) {
         <Counts attention={attention} pending={pending} />
       </header>
       {group.watches.map((w) => (
-        <WatchRow key={w.id} watch={w} />
+        <WatchRow key={w.id} watch={w} guild={guild} />
       ))}
     </section>
   );
 }
 
-/** Checkbox picker that stays open: tick to watch, untick to stop. */
+type Channel = Guild["channels"][number];
+
+/** A server's channels in Discord's order, split into category groups. */
+function byCategory(channels: Channel[]) {
+  const groups: { id: string | null; name: string | null; channels: Channel[] }[] = [];
+  for (const c of channels) {
+    const last = groups[groups.length - 1];
+    if (last && last.id === c.category_id) last.channels.push(c);
+    else groups.push({ id: c.category_id, name: c.category, channels: [c] });
+  }
+  return groups;
+}
+
+/** Checkbox picker that stays open until Done.
+ *
+ * Server NOT watched as a whole: a channel checkbox = watch that channel.
+ * Server watched as a whole: every checkbox means "included in the server
+ * watch" -- untick a channel or a whole category to exclude it. A channel
+ * can still get its own section ("own criteria"), which always wins. */
 function ChannelPicker({ onDone }: { onDone: () => void }) {
   const { data: guilds, isLoading } = useChannels(true);
+  const { data: watches } = useWatches();
   const create = useCreateWatch();
   const del = useDeleteWatch();
+  const update = useUpdateWatch();
   const qc = useQueryClient();
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -280,17 +339,30 @@ function ChannelPicker({ onDone }: { onDone: () => void }) {
   const [addedHere, setAddedHere] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
+  const watchById = useMemo(() => new Map((watches ?? []).map((w) => [w.id, w])), [watches]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (guilds ?? [])
       .map((g) => ({
         ...g,
         channels: g.channels.filter(
-          (c) => !q || c.name.toLowerCase().includes(q) || g.guild_name.toLowerCase().includes(q),
+          (c) =>
+            !q ||
+            c.name.toLowerCase().includes(q) ||
+            (c.category ?? "").toLowerCase().includes(q) ||
+            g.guild_name.toLowerCase().includes(q),
         ),
       }))
       .filter((g) => g.channels.length > 0);
   }, [guilds, query]);
+
+  const dupNames = useMemo(() => {
+    const seen = new Set<string>();
+    const dups = new Set<string>();
+    for (const g of guilds ?? []) (seen.has(g.guild_name) ? dups : seen).add(g.guild_name);
+    return dups;
+  }, [guilds]);
 
   const setIn = (setter: typeof setInFlight, key: string, on: boolean) =>
     setter((prev) => {
@@ -300,21 +372,18 @@ function ChannelPicker({ onDone }: { onDone: () => void }) {
       return next;
     });
 
-  const toggle = async (key: string, label: string, watchId: number | null, payload: { channel_id?: string; guild_id?: string }) => {
+  /** Runs one change with the row disabled until both lists have refetched,
+   * so the checkbox can't flip back mid-way and invite a duplicate click. */
+  const run = async (key: string, action: () => Promise<unknown>) => {
     if (inFlight.has(key)) return;
-    if (watchId !== null && !addedHere.has(key) && !confirm(`Stop watching ${label}? Its stored items are deleted.`)) return;
     setError(null);
     setIn(setInFlight, key, true);
     try {
-      if (watchId === null) {
-        await create.mutateAsync(payload);
-        setIn(setAddedHere, key, true);
-      } else {
-        await del.mutateAsync(watchId);
-      }
-      // Keep the row disabled until the directory reflects the change, or the
-      // checkbox briefly flips back and a second click would 409.
-      await qc.refetchQueries({ queryKey: ["channels"] });
+      await action();
+      await Promise.all([
+        qc.refetchQueries({ queryKey: ["channels"] }),
+        qc.refetchQueries({ queryKey: ["watches"] }),
+      ]);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -322,12 +391,24 @@ function ChannelPicker({ onDone }: { onDone: () => void }) {
     }
   };
 
-  const dupNames = useMemo(() => {
-    const seen = new Set<string>();
-    const dups = new Set<string>();
-    for (const g of guilds ?? []) (seen.has(g.guild_name) ? dups : seen).add(g.guild_name);
-    return dups;
-  }, [guilds]);
+  const toggleWatch = (key: string, label: string, watchId: number | null, payload: { channel_id?: string; guild_id?: string }) => {
+    if (watchId !== null && !addedHere.has(key) && !confirm(`Stop watching ${label}? Its stored items are deleted.`)) return;
+    return run(key, async () => {
+      if (watchId === null) {
+        await create.mutateAsync(payload);
+        setIn(setAddedHere, key, true);
+      } else {
+        await del.mutateAsync(watchId);
+      }
+    });
+  };
+
+  const setExcluded = (server: Watch, field: "excluded_channel_ids" | "excluded_category_ids", id: string, excluded: boolean) =>
+    run(`x:${id}`, () => {
+      const current = server[field];
+      const next = excluded ? [...current, id] : current.filter((x) => x !== id);
+      return update.mutateAsync({ id: server.id, [field]: next });
+    });
 
   const watchedCount = (guilds ?? []).reduce(
     (n, g) => n + (g.watch_id !== null ? 1 : 0) + g.channels.filter((c) => c.watch_id !== null).length,
@@ -343,7 +424,7 @@ function ChannelPicker({ onDone }: { onDone: () => void }) {
           Done
         </button>
       </header>
-      <input autoFocus placeholder="Filter servers and channels…" value={query} onChange={(e) => setQuery(e.target.value)} />
+      <input autoFocus placeholder="Filter servers, categories and channels…" value={query} onChange={(e) => setQuery(e.target.value)} />
       {isLoading && <p className="muted">Loading…</p>}
       {guilds && guilds.length === 0 && (
         <p className="muted">No channels yet. The list fills in once the listener has connected to Discord.</p>
@@ -353,7 +434,9 @@ function ChannelPicker({ onDone }: { onDone: () => void }) {
         {filtered.map((g) => {
           const open = !!query || expanded.has(g.guild_id);
           const gKey = `g:${g.guild_id}`;
+          const server = g.watch_id !== null ? watchById.get(g.watch_id) : undefined;
           const channelsWatched = g.channels.filter((c) => c.watch_id !== null).length;
+          const excludedCount = server ? server.excluded_channel_ids.length + server.excluded_category_ids.length : 0;
           return (
             <div key={g.guild_id} className="picker-guild">
               <div className="picker-guild-head">
@@ -361,38 +444,93 @@ function ChannelPicker({ onDone }: { onDone: () => void }) {
                   <span className="chevron">{open ? "▾" : "▸"}</span>
                   <span className="row-name">{g.guild_name}</span>
                   {dupNames.has(g.guild_name) && <span className="muted small">id …{g.guild_id.slice(-4)}</span>}
-                  {channelsWatched > 0 && <span className="muted small">{channelsWatched} channel{channelsWatched === 1 ? "" : "s"}</span>}
+                  {channelsWatched > 0 && (
+                    <span className="muted small">
+                      {channelsWatched} with own criteria
+                    </span>
+                  )}
+                  {excludedCount > 0 && <span className="muted small">{excludedCount} excluded</span>}
                 </button>
                 <label className="toggle">
                   <input
                     type="checkbox"
                     checked={g.watch_id !== null}
                     disabled={inFlight.has(gKey)}
-                    onChange={() => toggle(gKey, `${g.guild_name} (whole server)`, g.watch_id, { guild_id: g.guild_id })}
+                    onChange={() => toggleWatch(gKey, `${g.guild_name} (whole server)`, g.watch_id, { guild_id: g.guild_id })}
                   />
                   Whole server
                 </label>
               </div>
-              {open && (
-                <ul>
-                  {g.channels.map((c) => {
-                    const cKey = `c:${c.channel_id}`;
-                    return (
-                      <li key={c.channel_id}>
-                        <label className="toggle">
-                          <input
-                            type="checkbox"
-                            checked={c.watch_id !== null}
-                            disabled={inFlight.has(cKey)}
-                            onChange={() => toggle(cKey, `#${c.name}`, c.watch_id, { channel_id: c.channel_id })}
-                          />
-                          {c.category && <span className="muted small">{c.category} /</span>}#{c.name}
-                        </label>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
+              {open &&
+                byCategory(g.channels).map((cat) => {
+                  const catExcluded = !!(server && cat.id && server.excluded_category_ids.includes(cat.id));
+                  return (
+                    <div key={cat.id ?? "none"} className="picker-category">
+                      {cat.name && (
+                        <div className="picker-category-head">
+                          {server && cat.id ? (
+                            <label className="toggle" title="Untick to leave this whole category out, including channels added to it later">
+                              <input
+                                type="checkbox"
+                                checked={!catExcluded}
+                                disabled={inFlight.has(`x:${cat.id}`)}
+                                onChange={(e) => setExcluded(server, "excluded_category_ids", cat.id!, !e.target.checked)}
+                              />
+                              {cat.name}
+                            </label>
+                          ) : (
+                            <span>{cat.name}</span>
+                          )}
+                        </div>
+                      )}
+                      <ul>
+                        {cat.channels.map((c) => {
+                          const cKey = `c:${c.channel_id}`;
+                          if (!server || c.watch_id !== null) {
+                            // Own watch (or no server watch): checkbox = that channel's own section.
+                            return (
+                              <li key={c.channel_id}>
+                                <label className="toggle">
+                                  <input
+                                    type="checkbox"
+                                    checked={c.watch_id !== null}
+                                    disabled={inFlight.has(cKey)}
+                                    onChange={() => toggleWatch(cKey, `#${c.name}`, c.watch_id, { channel_id: c.channel_id })}
+                                  />
+                                  #{c.name}
+                                </label>
+                                {server && <span className="tag">own criteria</span>}
+                              </li>
+                            );
+                          }
+                          // Covered by the server watch: checkbox = included.
+                          const chExcluded = server.excluded_channel_ids.includes(c.channel_id);
+                          return (
+                            <li key={c.channel_id} className={catExcluded ? "muted" : undefined}>
+                              <label className="toggle" title={catExcluded ? "Its category is excluded" : undefined}>
+                                <input
+                                  type="checkbox"
+                                  checked={!chExcluded && !catExcluded}
+                                  disabled={catExcluded || inFlight.has(`x:${c.channel_id}`)}
+                                  onChange={(e) => setExcluded(server, "excluded_channel_ids", c.channel_id, !e.target.checked)}
+                                />
+                                #{c.name}
+                              </label>
+                              <button
+                                className="btn small ghost own-btn"
+                                title="Give this channel its own section and criteria (overrides the server's, even if excluded)"
+                                disabled={inFlight.has(cKey)}
+                                onClick={() => toggleWatch(cKey, `#${c.name}`, null, { channel_id: c.channel_id })}
+                              >
+                                own criteria
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  );
+                })}
             </div>
           );
         })}
@@ -406,6 +544,10 @@ export default function WatchesPage() {
   const [adding, setAdding] = useState(false);
   const builtins = (watches ?? []).filter((w) => w.kind === "all_dms" || w.kind === "requests");
   const servers = groupByServer(watches ?? []);
+  // The directory is only needed to name excluded channels/categories.
+  const hasServerWatch = (watches ?? []).some((w) => w.kind === "guild");
+  const { data: directory } = useChannels(hasServerWatch);
+  const guildById = new Map((directory ?? []).map((g) => [g.guild_id, g]));
 
   return (
     <div className="page">
@@ -427,7 +569,7 @@ export default function WatchesPage() {
         <BuiltinCard key={w.id} watch={w} />
       ))}
       {servers.map((g) => (
-        <ServerGroup key={g.guildId} group={g} />
+        <ServerGroup key={g.guildId} group={g} guild={guildById.get(g.guildId)} />
       ))}
     </div>
   );

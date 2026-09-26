@@ -7,8 +7,8 @@ OFF = WatchRef(4, "channel", "200", False)
 ALL = [DMS, REQUESTS, RAIDS, OFF]
 
 
-def msg(channel_type="guild", channel_id="100", parent=None, me=False, request=False, guild=None) -> IncomingMessage:
-    return IncomingMessage(channel_type, channel_id, parent, me, request, guild)
+def msg(channel_type="guild", channel_id="100", parent=None, me=False, request=False, guild=None, category=None) -> IncomingMessage:
+    return IncomingMessage(channel_type, channel_id, parent, me, request, guild, category)
 
 
 def test_own_messages_are_dropped():
@@ -55,6 +55,23 @@ def test_channel_watch_beats_its_servers_watch():
 def test_disabled_server_watch_drops_its_messages():
     watches = ALL + [WatchRef(5, "guild", None, False, guild_id="77")]
     assert route_message(msg(channel_id="555", guild="77"), watches) is None
+
+
+def test_server_watch_exclusions_drop_channels_their_threads_and_categories():
+    guild = WatchRef(
+        5, "guild", None, True, guild_id="77",
+        excluded_channel_ids=frozenset({"600"}), excluded_category_ids=frozenset({"900"}),
+    )
+    watches = ALL + [guild]
+    assert route_message(msg(channel_id="600", guild="77"), watches) is None
+    assert route_message(msg(channel_id="601", parent="600", guild="77"), watches) is None  # thread in it
+    assert route_message(msg(channel_id="700", guild="77", category="900"), watches) is None
+    assert route_message(msg(channel_id="701", guild="77", category="901"), watches) == Route(5, "message")
+
+
+def test_explicit_channel_watch_survives_its_servers_exclusions():
+    guild = WatchRef(5, "guild", None, True, guild_id="77", excluded_category_ids=frozenset({"900"}))
+    assert route_message(msg(channel_id="100", guild="77", category="900"), ALL + [guild]) == Route(3, "message")
 
 
 def test_disabled_builtin_sections_drop_their_messages():

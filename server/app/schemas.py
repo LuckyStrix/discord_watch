@@ -44,6 +44,8 @@ class WatchRead(BaseModel):
     criteria: str
     enabled: bool
     always_catch_up: bool
+    excluded_channel_ids: list[str]
+    excluded_category_ids: list[str]
     created_at: datetime
     pending_count: int = 0
     attention_count: int = 0
@@ -65,6 +67,8 @@ class WatchUpdate(BaseModel):
     criteria: str | None = None
     enabled: bool | None = None
     always_catch_up: bool | None = None
+    excluded_channel_ids: list[str] | None = None
+    excluded_category_ids: list[str] | None = None
 
 
 class TestResult(BaseModel):
@@ -81,6 +85,7 @@ class ChannelRead(BaseModel):
     channel_id: str
     name: str
     category: str | None
+    category_id: str | None
     watch_id: int | None  # None = not watched
 
 

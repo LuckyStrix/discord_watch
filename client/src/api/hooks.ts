@@ -86,6 +86,8 @@ export function useUpdateWatch() {
       criteria?: string;
       enabled?: boolean;
       always_catch_up?: boolean;
+      excluded_channel_ids?: string[];
+      excluded_category_ids?: string[];
     }) =>
       api.patch<Watch>(`/watches/${id}`, payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["watches"] }),

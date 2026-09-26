@@ -15,6 +15,16 @@ class WatchRef:
     enabled: bool
     always_catch_up: bool = False
     guild_id: str | None = None
+    # Whole-server watches only: channels / categories carved out of it.
+    excluded_channel_ids: frozenset[str] = frozenset()
+    excluded_category_ids: frozenset[str] = frozenset()
+
+    def excludes(self, channel_id: str, parent_channel_id: str | None, category_id: str | None) -> bool:
+        return (
+            channel_id in self.excluded_channel_ids
+            or (parent_channel_id is not None and parent_channel_id in self.excluded_channel_ids)
+            or (category_id is not None and category_id in self.excluded_category_ids)
+        )
 
 
 @dataclass(frozen=True)
@@ -33,6 +43,8 @@ class IncomingMessage:
     author_is_me: bool
     is_pending_request: bool
     guild_id: str | None = None
+    # The channel's category (for a thread: its parent channel's category).
+    category_id: str | None = None
 
 
 def route_message(msg: IncomingMessage, watches: list[WatchRef]) -> Route | None:
@@ -55,6 +67,8 @@ def route_message(msg: IncomingMessage, watches: list[WatchRef]) -> Route | None
     watch = by_channel.get(msg.channel_id) or (by_channel.get(msg.parent_channel_id) if msg.parent_channel_id else None)
     if watch is None and msg.guild_id:
         watch = next((w for w in enabled if w.kind == "guild" and w.guild_id == msg.guild_id), None)
+        if watch is not None and watch.excludes(msg.channel_id, msg.parent_channel_id, msg.category_id):
+            watch = None
     return Route(watch.id, "message") if watch else None
 
 

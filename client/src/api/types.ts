@@ -32,6 +32,8 @@ export interface Watch {
   criteria: string;
   enabled: boolean;
   always_catch_up: boolean;
+  excluded_channel_ids: string[];
+  excluded_category_ids: string[];
   created_at: string;
   pending_count: number;
   attention_count: number;
@@ -53,7 +55,13 @@ export interface Guild {
   guild_id: string;
   guild_name: string;
   watch_id: number | null;
-  channels: { channel_id: string; name: string; category: string | null; watch_id: number | null }[];
+  channels: {
+    channel_id: string;
+    name: string;
+    category: string | null;
+    category_id: string | null;
+    watch_id: number | null;
+  }[];
 }
 
 export interface AppSettings {
