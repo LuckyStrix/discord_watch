@@ -195,7 +195,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .item-content { margin: 0.35rem 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
 .item-attachments { margin: 0.25rem 0; padding-left: 1.2rem; font-size: 0.85rem; }
 .item-attachments a { color: var(--accent); }
-.item-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.6rem; }
+.item-card { display: grid; grid-template-columns: minmax(0, 1fr) 9.5rem; gap: 0 1rem; align-items: start; }
+.item-main { min-width: 0; }
+.item-actions { display: flex; flex-direction: column; gap: 0.4rem; }
+.item-actions .btn { justify-content: center; }
 
 /* Watches */
 
@@ -281,6 +284,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .status-grid dd { margin: 0; }
 
 @media (max-width: 600px) {
+  /* No room for a side column on phones: buttons go back under the text. */
+  .item-card { grid-template-columns: minmax(0, 1fr); }
+  .item-actions { flex-direction: row; flex-wrap: wrap; margin-top: 0.6rem; }
   .app-header { padding: 0.75rem 16px; }
   .item-time { margin-left: 0; }
 }

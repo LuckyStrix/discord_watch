@@ -30,12 +30,30 @@ function useInvalidateItems() {
   };
 }
 
+type ItemUpdate = { id: number; seen?: boolean; dismissed?: boolean };
+
 export function useUpdateItem() {
+  const qc = useQueryClient();
   const invalidate = useInvalidateItems();
   return useMutation({
-    mutationFn: ({ id, ...payload }: { id: number; seen?: boolean; dismissed?: boolean }) =>
-      api.patch<Item>(`/items/${id}`, payload),
-    onSuccess: invalidate,
+    mutationFn: ({ id, ...payload }: ItemUpdate) => api.patch<Item>(`/items/${id}`, payload),
+    // Optimistic: "Done" removes the tile immediately so the next one slides
+    // under the mouse for rapid click-through, instead of waiting a round
+    // trip plus refetch. Rolled back if the request fails.
+    onMutate: async ({ id, seen, dismissed }: ItemUpdate) => {
+      await qc.cancelQueries({ queryKey: ["items"] });
+      const snapshot = qc.getQueriesData<Item[]>({ queryKey: ["items"] });
+      const now = new Date().toISOString();
+      qc.setQueriesData<Item[]>({ queryKey: ["items"] }, (old) => {
+        if (!old) return old;
+        if (dismissed) return old.filter((i) => i.id !== id);
+        if (seen) return old.map((i) => (i.id === id && !i.seen_at ? { ...i, seen_at: now } : i));
+        return old;
+      });
+      return { snapshot };
+    },
+    onError: (_err, _vars, ctx) => ctx?.snapshot.forEach(([key, data]) => qc.setQueryData(key, data)),
+    onSettled: invalidate,
   });
 }
 
