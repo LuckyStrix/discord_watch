@@ -13,6 +13,7 @@ class WatchRef:
     kind: str
     channel_id: str | None
     enabled: bool
+    always_catch_up: bool = False
 
 
 @dataclass(frozen=True)
@@ -51,17 +52,35 @@ def route_message(msg: IncomingMessage, watches: list[WatchRef]) -> Route | None
     return Route(watch.id, "message") if watch else None
 
 
-def needs_backfill(last_message_id: str | None, acked_message_id: str | None, last_stored_id: str | None) -> int | None:
-    """Decides whether a channel has unread messages we haven't stored yet, and
-    if so returns the snowflake to fetch history *after* (0 = no known floor,
-    just take the most recent few). None means skip the channel. Snowflakes
-    are time-ordered, so integer comparison is chronological.
+def needs_backfill(
+    last_message_id: str | None,
+    acked_message_id: str | None,
+    last_stored_id: str | None,
+    *,
+    always: bool = False,
+    offline_since: int | None = None,
+) -> int | None:
+    """Decides whether a channel has messages we haven't stored yet, and if so
+    returns the snowflake to fetch history *after* (0 = no known floor, just
+    take the most recent few). None means skip the channel. Snowflakes are
+    time-ordered, so integer comparison is chronological.
 
-    Only channels Discord itself reports as unread (last message newer than
-    what the user has read) are ever fetched -- this keeps startup REST calls
-    to the handful of channels that actually changed while offline."""
+    Default: only channels Discord reports as unread (last message newer than
+    the user's read marker) -- keeps startup REST calls to the handful of
+    channels that actually changed while offline.
+
+    `always` (a per-watch opt-in) ignores the read marker, for channels that
+    never *look* unread: muted ones, or ones read on another device while this
+    listener was down. Its floor is instead `offline_since`, the snowflake of
+    when the listener last ran, so it fetches exactly the downtime gap. With no
+    `offline_since` (first ever run) there is no gap to fill, so it falls
+    back to the unread-only rule."""
     if not last_message_id:
         return None
     last = int(last_message_id)
-    floor = max(int(acked_message_id or 0), int(last_stored_id or 0))
+    stored = int(last_stored_id or 0)
+    if always and offline_since is not None:
+        floor = max(stored, offline_since)
+    else:
+        floor = max(int(acked_message_id or 0), stored)
     return floor if last > floor else None

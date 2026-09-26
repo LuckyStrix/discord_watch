@@ -47,6 +47,7 @@ class WatchRead(BaseModel):
     label: str
     criteria: str
     enabled: bool
+    always_catch_up: bool
     created_at: datetime
     pending_count: int = 0
     attention_count: int = 0
@@ -61,6 +62,7 @@ class WatchUpdate(BaseModel):
     label: str | None = Field(default=None, min_length=1, max_length=255)
     criteria: str | None = None
     enabled: bool | None = None
+    always_catch_up: bool | None = None
 
 
 class TestResult(BaseModel):

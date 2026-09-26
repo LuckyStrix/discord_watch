@@ -27,4 +27,8 @@ class Watch(Base):
     label: Mapped[str] = mapped_column(String(255), nullable=False)
     criteria: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    # Startup catch-up normally only fetches channels Discord marks unread.
+    # This opts a section into fetching the whole downtime gap regardless --
+    # for muted channels, or ones read on another device while the PC was off.
+    always_catch_up: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

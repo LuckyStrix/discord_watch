@@ -4,16 +4,18 @@ Hard rules (keep them if you edit this file):
   * never send, react, type, change presence, join/leave anything;
   * never ack (mark read) -- the user's unread badges must stay untouched;
   * no polling. The gateway pushes every event to a logged-in session, the
-    same as it does to the desktop app. The only REST calls are the startup
-    backfill, limited to channels Discord says have unread messages,
-    sequential and jittered.
+    same as it does to the desktop app -- including muted channels, since
+    muting is only a notification preference. The only REST calls are the
+    startup backfill (watched channels only; unread ones unless a section
+    opts into "always catch up"; capped, sequential and jittered) and one
+    profile lookup per live friend request.
 """
 
 import asyncio
 import logging
 import random
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import discord
 from sqlalchemy import BigInteger, cast, func, select
@@ -29,6 +31,10 @@ log = logging.getLogger("listener")
 WATCH_REFRESH_S = 30
 HEARTBEAT_S = 30
 BACKFILL_LIMIT = 25
+BACKFILL_MAX_CHANNELS = 30
+# How far back "always catch up" reaches after a long outage (a week away
+# shouldn't turn into hundreds of history requests on the next boot).
+MAX_CATCH_UP_DAYS = 3
 BACKFILL_DELAY_S = (2.0, 4.0)
 CONTENT_MAX = 4000
 
@@ -85,6 +91,7 @@ class WatchClient(discord.Client):
         self._last_event_at: datetime | None = None
         self._background: set[asyncio.Task] = set()
         self._ready_once = False
+        self._previous_heartbeat: datetime | None = None
 
     # -- helpers ----------------------------------------------------------
 
@@ -97,7 +104,7 @@ class WatchClient(discord.Client):
         if force or time.monotonic() - self._watches_loaded_at > WATCH_REFRESH_S:
             async with async_session() as db:
                 rows = (await db.execute(select(Watch))).scalars().all()
-            self._watches = [WatchRef(w.id, w.kind, w.channel_id, w.enabled) for w in rows]
+            self._watches = [WatchRef(w.id, w.kind, w.channel_id, w.enabled, w.always_catch_up) for w in rows]
             self._watches_loaded_at = time.monotonic()
         return self._watches
 
@@ -280,20 +287,36 @@ class WatchClient(discord.Client):
 
     # -- startup ----------------------------------------------------------
 
+    def _offline_since(self) -> int | None:
+        """Snowflake for when this listener last ran (its previous heartbeat),
+        clamped to MAX_CATCH_UP_DAYS. None on the very first run."""
+        if self._previous_heartbeat is None:
+            return None
+        since = max(self._previous_heartbeat, _now() - timedelta(days=MAX_CATCH_UP_DAYS))
+        return discord.utils.time_snowflake(since)
+
     async def backfill(self) -> None:
-        """Fetch messages missed while offline -- only for channels that are
-        watched AND that Discord reports as unread (last message newer than
-        both the user's read marker and the newest item already stored)."""
+        """Fetch messages missed while offline, for watched channels only.
+
+        Per channel, a watch's `always_catch_up` decides the rule (see
+        routing.needs_backfill): unread-only by default, or the whole downtime
+        gap for sections that opt in. Either way: at most BACKFILL_LIMIT
+        newest messages per channel in one request, at most
+        BACKFILL_MAX_CHANNELS channels (most recently active first), one at a
+        time with jitter."""
         watches = await self._load_watches(force=True)
-        enabled_kinds = {w.kind for w in watches if w.enabled}
-        candidates = []
+        by_kind = {w.kind: w for w in watches if w.enabled and w.kind != "channel"}
+        candidates: list[tuple[object, bool]] = []
         for w in watches:
             if w.kind == "channel" and w.enabled:
                 channel = self.get_channel(int(w.channel_id))
                 if channel is not None:
-                    candidates.append(channel)
-        if enabled_kinds & {"all_dms", "requests"}:
-            candidates.extend(self.private_channels)
+                    candidates.append((channel, w.always_catch_up))
+        for channel in self.private_channels:
+            watch = by_kind.get("requests" if _is_pending_request(channel) else "all_dms")
+            if watch is not None:
+                candidates.append((channel, watch.always_catch_up))
+        offline_since = self._offline_since()
 
         async with async_session() as db:
             # Cast: snowflakes are stored as strings, and string max() is wrong
@@ -308,30 +331,45 @@ class WatchClient(discord.Client):
                 ).all()
             )
 
-        fetched = 0
-        for channel in candidates:
+        todo: list[tuple[object, int]] = []
+        for channel, always in candidates:
             last_stored = last_ids.get(str(channel.id))
-            last_stored = str(last_stored) if last_stored else None
             after = needs_backfill(
                 str(channel.last_message_id) if channel.last_message_id else None,
                 str(channel.acked_message_id) if getattr(channel, "acked_message_id", None) else None,
-                last_stored,
+                str(last_stored) if last_stored else None,
+                always=always,
+                offline_since=offline_since,
             )
-            if after is None:
-                continue
+            if after is not None:
+                todo.append((channel, after))
+        # Most recently active first, so the cap drops the stalest channels.
+        todo.sort(key=lambda t: t[0].last_message_id or 0, reverse=True)
+        skipped = max(0, len(todo) - BACKFILL_MAX_CHANNELS)
+
+        fetched = 0
+        for channel, after in todo[:BACKFILL_MAX_CHANNELS]:
             await asyncio.sleep(random.uniform(*BACKFILL_DELAY_S))
             try:
-                kwargs = {"limit": BACKFILL_LIMIT}
+                # oldest_first=False matters: with `after` alone the library
+                # walks forward from `after` and returns the *oldest* messages
+                # past it -- weeks-old ones for a channel you rarely read.
+                # This way it's the newest BACKFILL_LIMIT after the floor, in
+                # a single request.
+                kwargs = {"limit": BACKFILL_LIMIT, "oldest_first": False}
                 if after:
                     kwargs["after"] = discord.Object(id=after)
-                else:
-                    kwargs["oldest_first"] = False
                 async for message in channel.history(**kwargs):
                     if await self.handle_message(message):
                         fetched += 1
             except discord.HTTPException as exc:
                 log.warning("backfill skipped %s: %s", channel.id, exc)
-        log.info("backfill done: %d new messages", fetched)
+        log.info(
+            "backfill done: %d new messages from %d channels%s",
+            fetched,
+            min(len(todo), BACKFILL_MAX_CHANNELS),
+            f" ({skipped} older channels skipped by the cap)" if skipped else "",
+        )
 
     async def rescan_friend_requests(self) -> None:
         for relationship in self.relationships:
@@ -375,4 +413,9 @@ class WatchClient(discord.Client):
             await asyncio.sleep(HEARTBEAT_S)
 
     async def setup_hook(self) -> None:
+        # Capture when the previous run last heartbeated *before* the new
+        # heartbeat loop overwrites it -- that's where the downtime gap starts.
+        async with async_session() as db:
+            row = await db.get(ListenerStatus, 1)
+            self._previous_heartbeat = row.heartbeat_at if row else None
         self._spawn(self.heartbeat_loop())

@@ -25,7 +25,13 @@ Bots can't see your DMs or friend and message requests, so the listener logs in 
 - **It never sends anything.** No messages, reactions, typing, or presence changes.
 - **It never marks anything as read**, so your unread badges in the real app are untouched.
 - **No polling.** Discord pushes events over the gateway to every logged-in session, the same way it does to your phone. There's nothing to poll.
-- **The only extra API calls** are a startup catch-up (only for watched channels Discord says are unread, ≤25 messages each, one at a time with 2–4s gaps; you can turn it off in Settings) and one profile lookup per *new* friend request, the same one the app makes when you open it.
+- **The only extra API calls** are a startup catch-up (watched channels only, ≤25 newest messages each, at most 30 channels, one at a time with 2–4s gaps; you can turn it off in Settings) and one profile lookup per *new* friend request, the same one the app makes when you open it.
+
+### Muted channels and "read elsewhere"
+
+- **While the listener is running**, every message in a watched channel is seen live, muted or not. Muting only changes notifications, not what Discord sends to the session.
+- **The startup catch-up** normally fetches only channels Discord marks as unread. That misses channels you never see as unread: muted ones, or ones you read on your phone while the PC was off.
+- **To catch those too**, tick **"Always catch up after downtime"** on the section. It then fetches whatever arrived since the listener last ran, looking back at most 3 days, whether or not it shows as unread.
 
 It's still your call and your account.
 

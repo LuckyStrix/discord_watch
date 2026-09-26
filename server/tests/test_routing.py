@@ -55,6 +55,21 @@ def test_backfill_only_for_unread_channels():
     assert needs_backfill(None, None, None) is None
 
 
+def test_always_catch_up_ignores_read_marker_and_fills_the_downtime_gap():
+    # Read on another device (acked == last), but the listener was down since 300.
+    assert needs_backfill("500", "500", None) is None
+    assert needs_backfill("500", "500", None, always=True, offline_since=300) == 300
+    # Already stored past the downtime start: only fetch after what we have.
+    assert needs_backfill("500", "500", "450", always=True, offline_since=300) == 450
+    # Nothing happened during the downtime.
+    assert needs_backfill("200", "200", None, always=True, offline_since=300) is None
+
+
+def test_always_catch_up_on_first_run_falls_back_to_unread_only():
+    assert needs_backfill("500", "500", None, always=True, offline_since=None) is None
+    assert needs_backfill("500", "400", None, always=True, offline_since=None) == 400
+
+
 def test_backfill_compares_snowflakes_numerically():
     # Lexically "99" > "100"; numerically it isn't.
     assert needs_backfill("100", "99", None) == 99

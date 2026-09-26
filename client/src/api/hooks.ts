@@ -76,7 +76,13 @@ export function useCreateWatch() {
 export function useUpdateWatch() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...payload }: { id: number; label?: string; criteria?: string; enabled?: boolean }) =>
+    mutationFn: ({ id, ...payload }: {
+      id: number;
+      label?: string;
+      criteria?: string;
+      enabled?: boolean;
+      always_catch_up?: boolean;
+    }) =>
       api.patch<Watch>(`/watches/${id}`, payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["watches"] }),
   });

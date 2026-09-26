@@ -84,6 +84,18 @@ function WatchCard({ watch }: { watch: Watch }) {
       </header>
       {BUILTIN_HINT[watch.kind] && <p className="muted small">{BUILTIN_HINT[watch.kind]}</p>}
       <CriteriaEditor watch={watch} />
+      <label
+        className="toggle catch-up"
+        title="Normally the startup catch-up only fetches channels Discord shows as unread."
+      >
+        <input
+          type="checkbox"
+          checked={watch.always_catch_up}
+          onChange={(e) => update.mutate({ id: watch.id, always_catch_up: e.target.checked })}
+        />
+        Always catch up after downtime, even if Discord doesn't show it as unread (muted, or read on another
+        device)
+      </label>
       <div className="watch-actions">
         <button className="btn" disabled={test.isPending} onClick={() => test.mutate(watch.id)}>
           {test.isPending ? "Testing… (runs on CPU, may take a bit)" : "Test criteria on recent messages"}

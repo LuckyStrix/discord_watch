@@ -215,6 +215,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .criteria { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.5rem; }
 .criteria label { font-size: 0.85rem; font-weight: 600; }
 
+.catch-up { margin-top: 0.6rem; color: var(--muted); font-size: 0.82rem; align-items: flex-start; }
+.catch-up input { margin-top: 0.15rem; }
+
 .watch-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
 
 .test-results { margin-top: 0.75rem; overflow-x: auto; }

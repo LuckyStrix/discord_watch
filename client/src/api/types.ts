@@ -31,6 +31,7 @@ export interface Watch {
   label: string;
   criteria: string;
   enabled: boolean;
+  always_catch_up: boolean;
   created_at: string;
   pending_count: number;
   attention_count: number;

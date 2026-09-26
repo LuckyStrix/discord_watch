@@ -63,7 +63,7 @@ export default function SettingsPage() {
         <textarea
           rows={4}
           value={draft.about_me}
-          placeholder="I'm Scott. I lead a raid team in X and organize game nights with friends. Anything from my close friends (A, B) matters more than acquaintances."
+          placeholder="I'm Carter. I lead a raid team in X and organize game nights with friends. Anything from my close friends (A, B) matters more than acquaintances."
           onChange={(e) => set("about_me", e.target.value)}
         />
       </section>
@@ -121,7 +121,8 @@ export default function SettingsPage() {
           On startup, catch up on unread messages missed while offline
         </label>
         <p className="muted small">
-          Only fetches watched channels that Discord reports as unread, one at a time. Turn off for zero extra API calls.
+          Only fetches watched channels that Discord reports as unread (plus sections set to "always catch up"), one
+          at a time. Turn off for zero extra API calls.
         </p>
       </section>
 
